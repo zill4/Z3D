@@ -4,7 +4,7 @@
 
 A complete local pipeline for generating rigged 3D assets from text prompts. Powered by DeepSeek-R1.
 
-```asciidoc
+```
 __________________  ________   
 \____    /\_____  \ \______ \  
   /     /   _(__  <  |    |  \ 
