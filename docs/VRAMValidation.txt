@@ -1,0 +1,10 @@
+[Model Memory Requirements]
+| Model        | Min VRAM | Recommended |
+|--------------|----------|-------------|
+| Stable Point-E | 8GB      | 12GB+       |
+| GET3D        | 10GB     | 16GB+       |
+| Meshtron     | TBD      | TBD         |
+
+[3090 Compatibility]
+- 24GB VRAM sufficient for single-model inference
+- Batch size limited to 1 for larger models 

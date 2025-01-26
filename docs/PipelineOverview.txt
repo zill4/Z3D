@@ -1,0 +1,15 @@
+[Prompt to 3D Workflow]
+1. Input: Text prompt stored in prompts.txt
+2. Inference: 
+   - Load Point-E model checkpoint
+   - Generate point cloud (output.ply)
+3. Output: 
+   - Raw files → assets/raw3D
+   - Logs → assets/logs/inference_log.txt 
+
+[Rigging Process]
+1. Blender Import: File → Import → Wavefront (.obj)
+2. Enable Rigify: Edit → Preferences → Add-ons → Rigging: Rigify
+3. Generate Meta-Rig: Object Data Properties → Generate Rig
+4. Adjust bone positions in Weight Paint mode
+5. Export: File → Export → FBX (.fbx) 
