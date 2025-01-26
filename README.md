@@ -2,99 +2,89 @@
 
 ![Workflow Diagram](https://via.placeholder.com/800x200.png?text=Text+→+3D+Mesh+→+Rigging+→+Animation+→+Game+Engine)
 
-A complete local pipeline for generating 3D assets from text prompts and preparing them for game engines. Powered by DeepSeek R1.
+A complete local pipeline for generating rigged 3D assets from text prompts. Powered by DeepSeek-R1.
 
 ```asciidoc
-   _____ ______  _____  ____  
-  /__  / / __ \/__  / / __ \ 
-   /_ < / / / /  / / / / / / 
- ___/ // /_/ /  / /_/ /_/ /  
-/____/ \____/  /____/\____/   
+__________________  ________   
+\____    /\_____  \ \______ \  
+  /     /   _(__  <  |    |  \ 
+ /     /_  /       \ |    `   \
+/_______ \/______  //_______  /
+        \/       \/         \/ 
 ```
 
-## 🌟 Features
+## 🌟 Current Capabilities
 - [x] Environment validation system
-- [x] Basic text-to-mesh generation
-- [ ] Automatic rigging system
-- [ ] Animation templates
-- [ ] Unity/Unreal integration
+- [x] Text-to-mesh generation
+- [ ] Automatic character rigging
+- [ ] Motion template integration
+- [ ] UE5/Unity export pipeline
 
-## 🖥️ System Requirements
+## 🚀 Quick Start Guide
+
+### Prerequisites
 ```asciidoc
-CPU: 8-core+ (Ryzen 9/Intel i7+ recommended)
-GPU: NVIDIA RTX 2070+ (24GB VRAM recommended)
-RAM: 32GB+ DDR4
-OS: Windows 10/11 (Linux support coming soon)
+1. Python 3.9+ :: https://python.org
+2. CUDA Toolkit 11.8 :: https://developer.nvidia.com/cuda-11-8-0-download-archive
+3. NVIDIA GPU (RTX 2070+ recommended)
 ```
 
-## 🚀 Getting Started
-
-### 1. Initial Setup
+### Installation
 ```powershell
-# Clone repository
-git clone https://github.com/your-username/text-to-3D-workflow
-cd text-to-3D-workflow
-
-# Run setup script
+# Clone and initialize repository
+git clone https://github.com/zill4/z3d-pipeline
+cd z3d-pipeline
 .\Setup-Repository.ps1
 ```
 
-### 2. Environment Configuration
-1. Install [Python 3.9+](https://www.python.org/downloads/)
-2. Install [CUDA Toolkit 11.8](https://developer.nvidia.com/cuda-11-8-0-download-archive)
-3. Add CUDA to PATH:
+### First Generation
 ```powershell
-[Environment]::SetEnvironmentVariable(
-    "Path",
-    [Environment]::GetEnvironmentVariable("Path", [EnvironmentVariableTarget]::Machine) + 
-    ";C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.8\bin",
-    [EnvironmentVariableTarget]::Machine
-)
+# Generate your first 3D asset
+python scripts/text_to_mesh.py --prompt "medieval treasure chest" --output my_first_asset/
+
+# Expected output:
+📁 my_first_asset/
+├── 📄 chest.obj          # 3D mesh
+├── 📄 material.mtl       # Material definitions
+└── 📄 textures/          # Generated textures
 ```
 
-## 🔍 Validation System
+## 🛠️ Validation Suite
 ```powershell
-# Run full validation
-.\Validate-3DWorkflow.ps1
+# Run comprehensive system check
+.\Validate-3DWorkflow.ps1 -Verbose
 
-# Sample success output:
-# [PASS] Core dependencies verified
-# [PASS] Repository structure valid
-# [PASS] Basic generation successful
+# Successful output shows:
+[PASS] Core dependencies verified
+[PASS] Repository structure valid  
+[PASS] Basic generation successful
 ```
 
-## 🛠️ Basic Usage
-```powershell
-# Generate test asset
-python scripts/text_to_mesh.py --prompt "stone cube" --output my_first_model/
-
-# Expected output structure
-📁 my_first_model/
-├── 📄 cube.obj
-└── 📄 material.mtl
-```
-
-## 📂 Repository Structure
+## 📂 Project Anatomy
 ```bash
-text-to-3D-workflow/
-├── steps/          # Workflow documentation
-├── scripts/        # Generation utilities
-├── outputs/        # Generated assets
-└── Validate-3DWorkflow.ps1  # Quality assurance
+z3d-pipeline/
+├── pipelines/       # Modular workflow stages
+├── asset_library/   # Prebuilt templates
+├── runtime/         # Engine integration
+├── docs/           # Technical documentation
+└── tools/          # Conversion utilities
 ```
 
-## 🚨 Troubleshooting
-| Symptom               | Solution                          |
-|-----------------------|-----------------------------------|
-| CUDA path not found   | Re-run Setup-Repository.ps1      |
-| Python not recognized | Check PATH environment variables |
-| OBJ files missing     | Verify VRAM availability (>8GB)  |
+## 🚨 Common Solutions
+| Issue                  | Resolution                         |
+|------------------------|------------------------------------|
+| CUDA_PATH not found    | Re-run setup script                |
+| Python import errors   | Verify virtual environment         |
+| Partial generations    | Check VRAM allocation (>10GB free)|
 
-## 📜 License
-MIT License - Free for personal and commercial use
-
+## 📅 Roadmap
 ```asciidoc
-Made with ❤️ by [Your Name] | Powered by DeepSeek-R1
+Q3 2024 :: Basic rigging system
+Q4 2024 :: Blender integration
+Q1 2025 :: Unreal Engine plugin
 ```
 
-> **Note**: This is phase 1 of the pipeline. Subsequent phases will add rigging, animation, and game engine integration capabilities.
+Licensed under MIT :: Contributions welcome
+Maintained by zill4 | Powered by DeepSeek-R1
+
+> **Note** This is Phase I focusing on core generation capabilities. Phase II will introduce animation systems and game engine integration.
