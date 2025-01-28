@@ -20,33 +20,35 @@ __________________  ________
 - [ ] Motion template integration
 - [ ] UE5/Unity export pipeline
 
-## 🚀 Quick Start Guide
+## 📋 Prerequisites
 
-### Prerequisites
-```asciidoc
-1. Python 3.9+ :: https://python.org
-2. CUDA Toolkit 11.8 :: https://developer.nvidia.com/cuda-11-8-0-download-archive
-3. NVIDIA GPU (RTX 2070+ recommended)
-```
+### Required Software
+1. **Python 3.10.9**
+   - Download: [Python 3.10.9 Windows Installer](https://www.python.org/ftp/python/3.10.9/python-3.10.9-amd64.exe)
+   - Install with "Add Python to PATH" checked
 
-### Installation
+2. **Blender 3.6.2**
+   - Download: [Blender Windows x64](https://download.blender.org/release/Blender3.6/blender-3.6.2-windows-x64.msi)
+   - Default installation is fine
+
+3. **Meshlab 2023.12**
+   - Download: [Meshlab Windows](https://www.meshlab.net/#download)
+   - Install to default location
+
+### System Requirements
+- Windows 10/11
+- NVIDIA GPU (RTX 2070+ recommended)
+- CUDA Toolkit 11.8
+- 16GB+ RAM recommended
+
+## 🚀 Quick Start
+
+1. Install prerequisites listed above
+2. Clone repository:
+
 ```powershell
-# Clone and initialize repository
 git clone https://github.com/zill4/z3d-pipeline
 cd z3d-pipeline
-.\Setup-Repository.ps1
-```
-
-### First Generation
-```powershell
-# Generate your first 3D asset
-python scripts/text_to_mesh.py --prompt "medieval treasure chest" --output my_first_asset/
-
-# Expected output:
-📁 my_first_asset/
-├── 📄 chest.obj          # 3D mesh
-├── 📄 material.mtl       # Material definitions
-└── 📄 textures/          # Generated textures
 ```
 
 ## 🛠️ Validation Suite

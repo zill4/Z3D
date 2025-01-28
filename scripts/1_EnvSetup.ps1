@@ -1,28 +1,72 @@
 # Install core components per InstallPlan.txt
 $pythonUrl = "https://www.python.org/ftp/python/3.10.9/python-3.10.9-amd64.exe"
 $blenderUrl = "https://download.blender.org/release/Blender3.6/blender-3.6.2-windows-x64.msi"
-$meshlabUrl = "https://github.com/cnr-isti-vclab/meshlab/releases/download/Meshlab-2022.12/MeshLab2022.12-windows.exe"
+$meshlabUrl = "https://github.com/cnr-isti-vclab/meshlab/releases/download/Meshlab-2023.12/MeshLab2023.12-windows.exe"
 
-# Install Python 3.10.9
-Write-Host "Downloading Python installer..."
-Invoke-WebRequest $pythonUrl -OutFile $env:TEMP\python-installer.exe
-if (-not (Test-Path $env:TEMP\python-installer.exe)) {
-    throw "Python installer download failed"
+# Function to download with retry and verification
+function Download-WithRetry {
+    param (
+        [string]$Url,
+        [string]$OutFile,
+        [string]$Name
+    )
+    
+    Write-Host "Downloading $Name from $Url"
+    try {
+        $ProgressPreference = 'SilentlyContinue'  # Speeds up downloads
+        Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -ErrorAction Stop
+        
+        if (Test-Path $OutFile) {
+            Write-Host "Successfully downloaded $Name" -ForegroundColor Green
+            return $true
+        }
+    }
+    catch {
+        Write-Host "Error downloading $Name $_" -ForegroundColor Red
+        return $false
+    }
+    return $false
 }
 
-Start-Process -Wait -FilePath $env:TEMP\python-installer.exe -ArgumentList '/quiet InstallAllUsers=1 PrependPath=1 TargetDir="C:\Python310"'
+# Create base directory
+$baseDir = "C:\Local3DGenProject"
+New-Item -Path $baseDir -ItemType Directory -Force | Out-Null
+New-Item -Path "$baseDir\tools" -ItemType Directory -Force | Out-Null
 
-# Verify installation
-if (-not (Test-Path "C:\Python310\python.exe")) {
-    throw "Python installation failed"
+# Download and install Python
+if (Download-WithRetry -Url $pythonUrl -OutFile "$env:TEMP\python-installer.exe" -Name "Python") {
+    Write-Host "Installing Python..."
+    Start-Process -Wait -FilePath "$env:TEMP\python-installer.exe" -ArgumentList '/quiet InstallAllUsers=1 PrependPath=1 TargetDir="C:\Python310"'
+    
+    if (Test-Path "C:\Python310\python.exe") {
+        Write-Host "Python installed successfully" -ForegroundColor Green
+        & "C:\Python310\python.exe" -m venv "$baseDir\.venv"
+    } else {
+        Write-Host "Python installation failed" -ForegroundColor Red
+    }
 }
 
-& "C:\Python310\python.exe" -m venv C:\Local3DGenProject\.venv
+# Download and install Blender
+if (Download-WithRetry -Url $blenderUrl -OutFile "$env:TEMP\blender-installer.msi" -Name "Blender") {
+    Write-Host "Installing Blender..."
+    Start-Process msiexec.exe -Wait -ArgumentList "/i `"$env:TEMP\blender-installer.msi`" /qn"
+    Write-Host "Blender installation completed" -ForegroundColor Green
+}
 
-# Install Blender
-Start-Process msiexec.exe -Wait -ArgumentList "/i $blenderUrl /qn"
+# Download and install Meshlab
+$meshlabDir = "$baseDir\tools\Meshlab"
+New-Item -Path $meshlabDir -ItemType Directory -Force | Out-Null
 
-# Install Meshlab (portable mode)
-New-Item -Path "C:\Local3DGenProject\tools\Meshlab" -ItemType Directory
-Invoke-WebRequest $meshlabUrl -OutFile $env:TEMP\meshlab.exe
-Start-Process -Wait -FilePath $env:TEMP\meshlab.exe -ArgumentList "--portable C:\Local3DGenProject\tools\Meshlab" 
+if (Download-WithRetry -Url $meshlabUrl -OutFile "$env:TEMP\meshlab-installer.exe" -Name "Meshlab") {
+    Write-Host "Installing Meshlab..."
+    try {
+        Start-Process -Wait -FilePath "$env:TEMP\meshlab-installer.exe" -ArgumentList "/S /D=`"$meshlabDir`"" -ErrorAction Stop
+        Write-Host "Meshlab installation completed" -ForegroundColor Green
+    }
+    catch {
+        Write-Host "Error installing Meshlab: $_" -ForegroundColor Red
+        Write-Host "Please download and install Meshlab manually from: https://www.meshlab.net/#download"
+    }
+}
+
+Write-Host "`nSetup complete! Please check above for any errors." -ForegroundColor Cyan 
