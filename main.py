@@ -81,19 +81,11 @@ decimated_mesh.export(str(gen_dir / "base_mesh.obj"))
 
 # Generate texture using the texture-optimized mesh
 print("Initializing texture pipeline...")
-paint_pipeline = Hunyuan3DPaintPipeline.from_pretrained(
-    'tencent/Hunyuan3D-2',
-    texture_resolution=1024,  # Increased from default 512
-    texture_quality='high'     # Enable higher quality settings
-)
+paint_pipeline = Hunyuan3DPaintPipeline.from_pretrained('tencent/Hunyuan3D-2')
 
 print("Generating texture...")
 try:
     textured_mesh = paint_pipeline(decimated_mesh, image=TEST_IMAGE)
-
-    # Transfer texture to high-poly mesh
-    print("Transferring texture to high-poly mesh...")
-    decimated_mesh.visual = textured_mesh.visual  # Copy texture data
 
     # Save both versions
     print(f"Saving models to {gen_dir}...")
