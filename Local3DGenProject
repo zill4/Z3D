@@ -1,3 +1,0 @@
-New-Item -Path "C:\Local3DGenProject" -ItemType Directory
-cd "C:\Local3DGenProject"
-mkdir docs,assets,scripts,tools 

@@ -1,7 +1,0 @@
-[Standard Animations]
-- Source: Pre-made BVH files from Mixamo
-- Retargeting Process:
-  1. Import BVH to Blender
-  2. Apply to rig via NLA Editor
-  3. Bake animation to armature
-  4. Export as FBX with embedded actions 

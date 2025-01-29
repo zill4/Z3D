@@ -1,6 +1,0 @@
-[System Requirements]
-- Local Windows execution via PowerShell
-- RTX 3090 GPU acceleration for all heavy tasks
-- Text-to-3D generation capability
-- Integrated rigging/animation pipeline
-- Step tracking for LLM reference 

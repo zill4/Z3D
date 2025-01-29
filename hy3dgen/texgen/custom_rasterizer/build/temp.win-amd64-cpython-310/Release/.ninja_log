@@ -1,0 +1,4 @@
+# ninja log v6
+28	13073	7598307786137800	C:/Users/justc/Code/Z3D/hy3dgen/texgen/custom_rasterizer/build/temp.win-amd64-cpython-310/Release/lib/custom_rasterizer_kernel/rasterizer.obj	6533b8b794e76c03
+8	13111	7598307785937441	C:/Users/justc/Code/Z3D/hy3dgen/texgen/custom_rasterizer/build/temp.win-amd64-cpython-310/Release/lib/custom_rasterizer_kernel/grid_neighbor.obj	43dd056dc0f4b93b
+30	39424	7598307786157798	C:/Users/justc/Code/Z3D/hy3dgen/texgen/custom_rasterizer/build/temp.win-amd64-cpython-310/Release/lib/custom_rasterizer_kernel/rasterizer_gpu.obj	599a80ae6ad3790e

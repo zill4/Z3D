@@ -1,6 +1,0 @@
-[Mesh Processing]
-- Use Meshlab's Poisson Reconstruction:
-  1. Import .ply from assets/raw3D
-  2. Filters → Remeshing → Surface Reconstruction: Poisson
-  3. Set Depth=12, Solver Divide=8
-  4. Export as .obj to assets/cleaned3D 
