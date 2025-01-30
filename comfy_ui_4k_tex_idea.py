@@ -374,8 +374,8 @@ class Hy3DRenderMultiView:
         return {
             "required": {
                 "mesh": ("HY3DMESH",),
-                "render_size": ("INT", {"default": 1024, "min": 64, "max": 4096, "step": 16}),
-                "texture_size": ("INT", {"default": 1024, "min": 64, "max": 4096, "step": 16}),
+                "render_size": ("INT", {"default": 2048, "min": 64, "max": 4096, "step": 16}),
+                "texture_size": ("INT", {"default": 4096, "min": 64, "max": 8192, "step": 16}),
             },
             "optional": {
                 "camera_config": ("HY3DCAMERA",),
@@ -568,8 +568,8 @@ class Hy3DRenderMultiViewDepth:
             }
         }
 
-    RETURN_TYPES = ("IMAGE", )
-    RETURN_NAMES = ("depth_maps", )
+    RETURN_TYPES = ("IMAGE", "IMAGE")
+    RETURN_NAMES = ("baked_texture", "trust_map")
     FUNCTION = "process"
     CATEGORY = "Hunyuan3DWrapper"
 

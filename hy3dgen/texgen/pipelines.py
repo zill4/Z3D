@@ -25,6 +25,7 @@
 
 import logging
 import os
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -93,6 +94,12 @@ class Hunyuan3DPaintPipeline:
             texture_size=self.config.texture_size)
 
         self.load_models()
+
+        # Add these configuration parameters
+        self.view_size = 512  # Default value
+        self.texture_size = 2048
+        self.enable_intermediate_saves = False
+        self.intermediate_dir = None
 
     def load_models(self):
         # empty cude cache
@@ -225,3 +232,13 @@ class Hunyuan3DPaintPipeline:
         textured_mesh = self.render.save_mesh()
 
         return textured_mesh
+
+    def set_intermediate_dir(self, path: str):
+        """Added method to configure intermediate saves"""
+        self.intermediate_dir = Path(path)
+        self.enable_intermediate_saves = True
+
+    def _save_intermediate(self, iteration, image):
+        if self.enable_intermediate_saves and self.intermediate_dir:
+            path = self.intermediate_dir / f"iter_{iteration:04d}.png"
+            image.save(str(path))

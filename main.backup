@@ -12,20 +12,6 @@ from PIL import Image
 from hy3dgen.shapegen import Hunyuan3DDiTFlowMatchingPipeline, FaceReducer, FloaterRemover, DegenerateFaceRemover
 import numpy as np
 
-def ensure_model_downloaded():
-    models_dir = Path('models')
-    models_dir.mkdir(exist_ok=True)
-    
-    model_path = models_dir / 'RealESRGAN_x4plus.pth'
-    if not model_path.exists():
-        print("Please Download RealESRGAN model")
-        # import gdown
-        # gdown.download(
-        #     'https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth',
-        #     str(model_path)
-        # )
-    return model_path
-
 def get_next_number():
     """Get the next available number for file naming"""
     output_dir = Path('output')
@@ -75,7 +61,7 @@ print(f"Original mesh faces: {len(mesh.faces)}")
 # Apply the same processing as the API server
 processed_mesh = FloaterRemover()(mesh)                # Remove floating artifacts
 processed_mesh = DegenerateFaceRemover()(processed_mesh)  # Remove bad triangles
-processed_mesh = FaceReducer()(processed_mesh, max_facenum=251436)  # Reduce to 40k faces, changed to 218824 (base model size)
+processed_mesh = FaceReducer()(processed_mesh, max_facenum=218824)  # Reduce to 40k faces, changed to 218824 (base model size)
 
 # Additional quality checks
 processed_mesh = processed_mesh.process(validate=True)  # Validate mesh
@@ -98,45 +84,12 @@ processed_mesh.export(
 print("Initializing texture pipeline...")
 paint_pipeline = Hunyuan3DPaintPipeline.from_pretrained('tencent/Hunyuan3D-2')
 
-# Configure pipeline parameters through the modified class
-paint_pipeline.view_size = 1024
-paint_pipeline.texture_size = 4096
-
-# Configure intermediate saves
-intermediate_dir = gen_dir / 'intermediate_textures'
-intermediate_dir.mkdir(exist_ok=True)
-paint_pipeline.set_intermediate_dir(str(intermediate_dir))
-
 print("Generating texture...")
 try:
     # Apply texture to processed mesh
     textured_mesh = paint_pipeline(processed_mesh, image=TEST_IMAGE)
     
-    # Upscale texture if present
-    if hasattr(textured_mesh.visual, 'material') and hasattr(textured_mesh.visual.material, 'image'):
-        print("Upscaling texture...")
-        original_texture = textured_mesh.visual.material.image
-        
-        # Save original texture for reference
-        original_texture_path = gen_dir / 'original_texture.png'
-        if isinstance(original_texture, Image.Image):
-            original_texture.save(original_texture_path)
-        else:
-            Image.fromarray(original_texture).save(original_texture_path)
-        
-        # Upscale the texture
-        try:
-            upscaled_texture = upscale_texture(original_texture)
-            textured_mesh.visual.material.image = Image.fromarray(upscaled_texture)
-            
-            # Save upscaled texture separately
-            Image.fromarray(upscaled_texture).save(gen_dir / 'upscaled_texture.png')
-            print(f"Texture upscaled successfully")
-        except Exception as e:
-            print(f"Upscaling failed: {e}")
-            # Fallback to original texture
-    
-    # Save textured model with upscaled texture
+    # Save textured model
     print(f"Saving models to {gen_dir}...")
     # Export GLB with embedded textures
     textured_mesh.export(
@@ -194,54 +147,7 @@ try:
     # Create input image reference
     copy(TEST_IMAGE, str(gen_dir / Path(TEST_IMAGE).name))
 
-    # Add this before and after upscaling to monitor VRAM
-    print(f"GPU Memory: {torch.cuda.memory_allocated() / 1024**2:.2f}MB")
-
 except Exception as e:
     print(f"Texture generation failed: {e}")
     processed_mesh.export(str(gen_dir / "untextured_mesh.glb"))
     print("Saved untextured mesh as fallback")
-
-def upscale_texture(img):
-    """Custom SwinIR-based upscaler"""
-    import torch
-    from torchvision.transforms import ToTensor
-    from swinir import SwinIR  # Changed from relative import
-    
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model_path = Path('models/SwinIR/SwinIR_4x.pth')
-    
-    if not model_path.exists():
-        raise FileNotFoundError(
-            f"SwinIR model not found at {model_path}. "
-            "Run download_swinir_model.py first!"
-        )
-    
-    # Load model
-    model = SwinIR(
-        upscale=4,
-        img_size=64,
-        window_size=8,
-        img_range=1.0,
-        depths=[6, 6, 6, 6],
-        embed_dim=60,
-        num_heads=[6, 6, 6, 6],
-        mlp_ratio=2
-    ).to(device)
-    
-    model.load_state_dict(torch.load(model_path))
-    model.eval()
-    
-    # Convert input to tensor
-    if isinstance(img, Image.Image):
-        img_tensor = ToTensor()(img).unsqueeze(0).to(device)
-    else:
-        img_tensor = torch.from_numpy(img).permute(2,0,1).unsqueeze(0).to(device).float()/255.0
-    
-    # Process
-    with torch.no_grad():
-        output = model(img_tensor)
-    
-    # Convert back to numpy array
-    upscaled = output.squeeze().permute(1,2,0).clamp(0,1).cpu().numpy()
-    return (upscaled * 255).astype('uint8')

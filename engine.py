@@ -85,12 +85,12 @@ class ArtGalleryViewer:
         )
         
     def get_generation_path(self):
-        """Get the path to generation_18"""
-        return Path('output/generation_18')
+        """Get the path to generation_21"""
+        return Path('output/generation_21')
 
     def load_artwork(self):
         """Load and display the 3D model with debug visuals"""
-        gen_dir = Path('output/generation_18')
+        gen_dir = Path('output/generation_21')
         
         try:
             # Define paths

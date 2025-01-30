@@ -34,7 +34,7 @@ from diffusers import EulerAncestralDiscreteScheduler
 class Multiview_Diffusion_Net():
     def __init__(self, config) -> None:
         self.device = config.device
-        self.view_size = 512
+        self.view_size =  1024  # Increased from 512 to 1024 for higher res inputs
         multiview_ckpt_path = config.multiview_ckpt_path
 
         current_file_path = os.path.abspath(__file__)
