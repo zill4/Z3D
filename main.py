@@ -57,7 +57,8 @@ mesh = shape_pipeline(image=TEST_IMAGE)[0]
 print(f"Original mesh faces: {len(mesh.faces)}")
 
 # Calculate target reduction ratio based on desired face count
-target_faces = 80000
+# Testing with Max 50,000 Face count.
+target_faces = 50000
 reduction_ratio = target_faces / len(mesh.faces)
 
 # Apply decimation with correct parameters

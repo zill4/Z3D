@@ -11,6 +11,7 @@ class ArtGalleryViewer:
             title='3D Art Gallery',
             borderless=False,
             fullscreen=False,
+            vsync=True,
             size=(1600, 900)
         )
         
@@ -79,52 +80,52 @@ class ArtGalleryViewer:
         )
         
     def get_generation_path(self):
-        """Get the path to generation_4"""
-        return Path('output/generation_4')
+        """Get the path to generation_10"""
+        return Path('output/generation_10')
 
     def load_artwork(self):
         """Load and display the 3D model with debug visuals"""
-        gen_dir = Path('output/generation_4')  # Use forward slashes
+        gen_dir = Path('output/generation_10')
         
         if not gen_dir.exists():
             print(f"Generation directory {gen_dir} not found")
             return
 
-        # Create a visible marker at target position
-        marker = Entity(
-            model='cube',
-            color=color.red,
-            scale=(0.5, 0.5, 0.5),
-            position=(0, 1.5, 3)
-        )
-        
+        # Create visible markers to help with orientation
+        Entity(model='sphere', color=color.yellow, scale=0.3, position=(0, 1.5, 3))  # Model position
+        Entity(model='sphere', color=color.red, scale=0.3, position=(0, 0, 0))      # Origin
+        Entity(model='sphere', color=color.green, scale=0.3, position=(0, 0, 1))    # +Z direction
+
         try:
-            # Check if files exist before loading
-            obj_path = gen_dir / 'output.obj'
+            # Load base_mesh.obj and texture.png specifically
+            obj_path = gen_dir / 'base_mesh.obj'
             texture_path = gen_dir / 'texture.png'
             
-            if not obj_path.exists():
-                print(f"OBJ file not found at: {obj_path}")
-                raise FileNotFoundError(f"Missing OBJ file: {obj_path}")
+            print(f"Looking for OBJ at: {obj_path}")
+            print(f"Looking for texture at: {texture_path}")
             
+            if not obj_path.exists():
+                raise FileNotFoundError(f"Missing OBJ file: {obj_path}")
             if not texture_path.exists():
-                print(f"Texture file not found at: {texture_path}")
                 raise FileNotFoundError(f"Missing texture file: {texture_path}")
             
-            print(f"Loading model from: {obj_path}")
-            print(f"Loading texture from: {texture_path}")
+            print("Found both model and texture files, attempting to load...")
             
-            # Try loading with explicit texture
+            # Try loading with explicit paths
             self.artwork = Entity(
                 model=str(obj_path),
                 texture=str(texture_path),
-                scale=5.0,
+                scale=1.0,
                 position=(0, 1.5, 3),
-                rotation=(0, 180, 0),
-                collider='box',
+                rotation=(90, 0, 0),  # Adjust for coordinate system difference
                 double_sided=True
             )
-            print(f"Loaded model at {self.artwork.position} with scale {self.artwork.scale}")
+            print(f"Model loaded: {self.artwork}")
+            
+            # Add model inspection
+            print(f"Model vertices: {len(self.artwork.model.vertices)}")
+            print(f"Model triangles: {len(self.artwork.model.triangles)}")
+            print(f"Model UVs: {len(self.artwork.model.uvs) if hasattr(self.artwork.model, 'uvs') else None}")
             
             # Add wireframe overlay
             self.artwork_wireframe = Entity(
@@ -135,10 +136,15 @@ class ArtGalleryViewer:
                 color=color.cyan,
                 wireframe=True
             )
+            print("Wireframe overlay created")
             
         except Exception as e:
-            print(f"Model loading failed: {e}")
-            # Fallback with visible cube
+            print(f"Model loading failed with error: {str(e)}")
+            print(f"Error type: {type(e)}")
+            import traceback
+            traceback.print_exc()
+            
+            # Fallback cube
             self.artwork = Entity(
                 model='cube',
                 position=(0, 1.5, 3),
@@ -147,48 +153,55 @@ class ArtGalleryViewer:
                 collider='box'
             )
             print("Created fallback cube")
-            
-            # Add debug sphere to mark intended position
-            Entity(
-                model='sphere',
-                scale=(0.5, 0.5, 0.5),
-                position=(0, 1.5, 3),
-                color=color.yellow
-            )
 
     def setup_controls(self):
         """Configure controls with debug features"""
         self.player = FirstPersonController(
-            position=(0, 1.8, 0),
-            rotation=(0, 180, 0),
+            position=(0, 1.8, -5),
+            rotation=(0, 0, 0),
             gravity=0.5,
             speed=3,
             mouse_sensitivity=Vec2(40, 40)
         )
         
-        # Debug camera settings
-        camera.clip_plane_near = 0.01
-        camera.clip_plane_far = 100
+        # Adjust camera settings
+        camera.clip_plane_near = 0.1
+        camera.clip_plane_far = 1000
         camera.fov = 90
         
-        # Debug text
-        self.debug_text = Text(
-            text="Press 'O' to toggle wireframe\nPress 'P' for position info",
-            position=(-0.8, 0.4),
-            origin=(-0.5, 0.5),
-            scale=0.8,
-            color=color.red
-        )
+        # Add debug crosshair and controls text
+        Text('+', color=color.red, origin=(0, 0), scale=2)
         
-        def input(key):
-            if key == 'o':
+        # Add controls text in the top-left corner
+        self.controls_text = Text(
+            text='Controls:\nWASD - Move\nMouse - Look\nO - Toggle Wireframe\nP - Debug Info\nESC - Quit',
+            position=(-0.85, 0.45),
+            scale=1.5,
+            color=color.white
+        ) 
+        
+        # Bind input handler to key events
+        self.key_handler = Entity()
+        self.key_handler.input = self.handle_input
+
+    def handle_input(self, key):
+        """Custom input handler"""
+        if key == 'escape':
+            print("Quitting application")
+            application.quit()
+        elif key == 'o':
+            if hasattr(self, 'artwork_wireframe'):
                 self.artwork_wireframe.enabled = not self.artwork_wireframe.enabled
-            if key == 'p':
-                print(f"Player position: {self.player.position}")
+                print(f"Wireframe {'enabled' if self.artwork_wireframe.enabled else 'disabled'}")
+        elif key == 'p':
+            print(f"\nDebug Info:")
+            print(f"Player position: {self.player.position}")
+            print(f"Player rotation: {self.player.rotation}")
+            if hasattr(self, 'artwork'):
                 print(f"Model position: {self.artwork.position}")
-            
-        self.input = input
-        
+                print(f"Model visible: {self.artwork.visible}")
+                print(f"Model scale: {self.artwork.scale}")
+
     def run(self):
         """Start the gallery viewer"""
         self.app.run()
