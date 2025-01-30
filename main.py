@@ -9,6 +9,8 @@ from pathlib import Path
 from glob import glob
 from shutil import copy
 from PIL import Image
+from hy3dgen.shapegen import Hunyuan3DDiTFlowMatchingPipeline, FaceReducer, FloaterRemover, DegenerateFaceRemover
+import numpy as np
 
 def get_next_number():
     """Get the next available number for file naming"""
@@ -53,65 +55,99 @@ shape_pipeline = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained('tencent/Hunyu
 print("Generating 3D shape...")
 mesh = shape_pipeline(image=TEST_IMAGE)[0]
 
-# Modify the mesh processing section
+# Modified mesh processing section
 print(f"Original mesh faces: {len(mesh.faces)}")
 
-# Calculate target reduction ratio based on desired face count
-# Testing with Max 50,000 Face count.
-target_faces = 50000
-reduction_ratio = target_faces / len(mesh.faces)
+# Apply the same processing as the API server
+processed_mesh = FloaterRemover()(mesh)                # Remove floating artifacts
+processed_mesh = DegenerateFaceRemover()(processed_mesh)  # Remove bad triangles
+processed_mesh = FaceReducer()(processed_mesh, max_facenum=218824)  # Reduce to 40k faces, changed to 218824 (base model size)
 
-# Apply decimation with correct parameters
-decimated_mesh = mesh.simplify_quadric_decimation(
-    face_count=target_faces
+# Additional quality checks
+processed_mesh = processed_mesh.process(validate=True)  # Validate mesh
+processed_mesh.fill_holes()                           # Fill any remaining holes
+
+print(f"Processed mesh faces: {len(processed_mesh.faces)}")
+
+# Save processed base mesh
+print("Saving processed base mesh...")
+# Export OBJ with UV coordinates
+processed_mesh.export(
+    str(gen_dir / "base_mesh.obj"),
+    include_normals=True,
+    include_texture=True,  # For UV coordinates
+    resolver=None,  # For material handling
+    mtl_name=str(gen_dir / 'material.mtl')  # Material file name
 )
 
-# Add quality preservation steps (fixed parameters)
-decimated_mesh = decimated_mesh.process(validate=True)
-
-# Additional repair steps
-decimated_mesh.fill_holes()  # Fill any holes in the mesh
-decimated_mesh.remove_degenerate_faces()  # Remove bad triangles
-decimated_mesh.remove_duplicate_faces()  # Remove duplicate faces
-
-print(f"Processed mesh faces: {len(decimated_mesh.faces)}")
-
-# Force OBJ export even if texturing fails
-print("Saving base mesh...")
-decimated_mesh.export(str(gen_dir / "base_mesh.obj"))
-
-# Generate texture using the texture-optimized mesh
+# Generate texture using the processed mesh
 print("Initializing texture pipeline...")
 paint_pipeline = Hunyuan3DPaintPipeline.from_pretrained('tencent/Hunyuan3D-2')
 
 print("Generating texture...")
 try:
-    textured_mesh = paint_pipeline(decimated_mesh, image=TEST_IMAGE)
-
-    # Save both versions
+    # Apply texture to processed mesh
+    textured_mesh = paint_pipeline(processed_mesh, image=TEST_IMAGE)
+    
+    # Save textured model
     print(f"Saving models to {gen_dir}...")
-    decimated_mesh.export(str(gen_dir / "high_poly.glb"))  # 80k faces with texture
-    textured_mesh.export(str(gen_dir / "textured.glb"))    # 48k faces with texture
-
-    # Save texture separately if available
-    if hasattr(textured_mesh, 'visual') and hasattr(textured_mesh.visual, 'material'):
+    # Export GLB with embedded textures
+    textured_mesh.export(
+        str(gen_dir / "textured.glb"),
+        file_type='glb'
+    )
+    
+    # Export material information
+    if hasattr(textured_mesh.visual, 'material'):
+        # Save material properties with standard values
+        material_props = {
+            'Ka': [0.2, 0.2, 0.2],  # ambient
+            'Kd': [0.8, 0.8, 0.8],  # diffuse
+            'Ks': [0.0, 0.0, 0.0],  # specular
+            'Ns': 1.0,              # specular coefficient
+            'd': 1.0,               # transparency
+            'map_Kd': 'texture.png' # diffuse texture map
+        }
+        # Save as MTL file
+        with open(str(gen_dir / 'material.mtl'), 'w') as f:
+            f.write(f"newmtl material0\n")
+            for key, value in material_props.items():
+                if isinstance(value, list):
+                    value = ' '.join(map(str, value))
+                f.write(f"{key} {value}\n")
+        
+        # Save texture with specific format
         if hasattr(textured_mesh.visual.material, 'image'):
-            textured_mesh.visual.material.image.save(str(gen_dir / 'texture.png'))
-            print("Texture saved separately as texture.png")
-        if hasattr(textured_mesh.visual.material, 'baseColorTexture'):
-            with open(str(gen_dir / 'texture.png'), 'wb') as f:
-                f.write(textured_mesh.visual.material.baseColorTexture)
-            print("Base color texture saved as texture.png")
-
-    # Create a copy of the input image for reference
+            img = textured_mesh.visual.material.image
+            # Check if img is a PIL Image and convert to numpy array if needed
+            if isinstance(img, Image.Image):
+                img = np.array(img)
+            
+            # Convert to RGBA
+            if len(img.shape) == 3 and img.shape[2] == 3:  # If RGB
+                alpha = np.ones((img.shape[0], img.shape[1], 1)) * 255
+                img = np.concatenate([img, alpha], axis=2)
+            elif len(img.shape) == 2:  # If grayscale
+                img = np.stack([img, img, img, np.ones_like(img) * 255], axis=-1)
+            
+            # Convert back to PIL and save
+            Image.fromarray(img.astype(np.uint8)).save(str(gen_dir / 'texture.png'))
+            print("Texture saved with material properties")
+    
+    # Also save an OBJ version of the textured mesh
+    textured_mesh.export(
+        str(gen_dir / "textured.obj"),
+        include_normals=True,
+        include_texture=True,
+        resolver=None,
+        mtl_name='textured_material.mtl'  # Changed to relative path
+    )
+    print("Saved both GLB and OBJ versions of textured mesh")
+            
+    # Create input image reference
     copy(TEST_IMAGE, str(gen_dir / Path(TEST_IMAGE).name))
-
-    print(f"Done! Generation {gen_num} saved in {gen_dir}")
-    print("Files generated:")
-    for file in gen_dir.glob('*'):
-        print(f"- {file.name}")
 
 except Exception as e:
     print(f"Texture generation failed: {e}")
-    decimated_mesh.export(str(gen_dir / "untextured_mesh.obj"))
+    processed_mesh.export(str(gen_dir / "untextured_mesh.glb"))
     print("Saved untextured mesh as fallback")

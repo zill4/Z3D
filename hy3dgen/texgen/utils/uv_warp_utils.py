@@ -30,8 +30,9 @@ def mesh_uv_wrap(mesh):
     if isinstance(mesh, trimesh.Scene):
         mesh = mesh.dump(concatenate=True)
 
-    if len(mesh.faces) > 50000:
-        raise ValueError("The mesh has more than 50,000 faces, which is not supported.")
+    # TODO: Commented this BS out, see if we get better quality 3D Models 1/29/25
+    # if len(mesh.faces) > 50000:
+    #     raise ValueError("The mesh has more than 50,000 faces, which is not supported.")
 
     vmapping, indices, uvs = xatlas.parametrize(mesh.vertices, mesh.faces)
 

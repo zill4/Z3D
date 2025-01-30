@@ -27,3 +27,22 @@ If user says continue, continue
 else fix
 
 END RECURSIVE PROMPT Please provide script for me to run to validate. The script should be uniquely named.
+
+
+Improving the quality of 3D Hunyuan Generation Prompt
+Prompt:
+Modify the Hunyuan3D-2 codebase to:
+
+Increase the number of mesh faces beyond 50,000
+
+Identify where the 50K limit is imposed. Likely in octree_resolution or a hardcoded constraint.
+If it’s a simple check, comment it out or modify it.
+Increase octree_resolution (default is 256; try 384 or 512).
+Ensure the model still functions efficiently despite increased face count.
+Improve texture quality via upscaling
+
+Modify Multiview_Diffusion_Net to use view_size = 1024 instead of default.
+Ensure the system can process and bake higher-resolution textures.
+Allow intermediate texture results to be exported for external optimization (e.g., with AI upscalers).
+(Optional) Investigate adding a 4X texture upscaler before final texture baking.
+Output the updated code snippets, explaining what changes were made and why. Provide any necessary dependency updates or flags needed to run the modified version.

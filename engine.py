@@ -3,6 +3,11 @@ from ursina.prefabs.first_person_controller import FirstPersonController
 from ursina.lights import PointLight, AmbientLight
 from pathlib import Path
 import os
+from panda3d.core import Filename, Texture, NodePath, TransparencyAttrib, TextureStage, SamplerState, TexGenAttrib
+from direct.actor.Actor import Actor
+import traceback
+from PIL import Image
+import numpy as np
 
 class ArtGalleryViewer:
     def __init__(self):
@@ -80,77 +85,141 @@ class ArtGalleryViewer:
         )
         
     def get_generation_path(self):
-        """Get the path to generation_10"""
-        return Path('output/generation_10')
+        """Get the path to generation_18"""
+        return Path('output/generation_18')
 
     def load_artwork(self):
         """Load and display the 3D model with debug visuals"""
-        gen_dir = Path('output/generation_10')
+        gen_dir = Path('output/generation_18')
         
-        if not gen_dir.exists():
-            print(f"Generation directory {gen_dir} not found")
-            return
-
-        # Create visible markers to help with orientation
-        Entity(model='sphere', color=color.yellow, scale=0.3, position=(0, 1.5, 3))  # Model position
-        Entity(model='sphere', color=color.red, scale=0.3, position=(0, 0, 0))      # Origin
-        Entity(model='sphere', color=color.green, scale=0.3, position=(0, 0, 1))    # +Z direction
-
         try:
-            # Load base_mesh.obj and texture.png specifically
-            obj_path = gen_dir / 'base_mesh.obj'
+            # Define paths
+            model_paths = {
+                'obj': gen_dir / 'textured.obj',
+                'glb': gen_dir / 'textured.glb',
+                'processed': gen_dir / 'processed_base.glb',
+            }
             texture_path = gen_dir / 'texture.png'
             
-            print(f"Looking for OBJ at: {obj_path}")
-            print(f"Looking for texture at: {texture_path}")
+            print("Attempting to load models from multiple sources...")
             
-            if not obj_path.exists():
-                raise FileNotFoundError(f"Missing OBJ file: {obj_path}")
-            if not texture_path.exists():
-                raise FileNotFoundError(f"Missing texture file: {texture_path}")
+            # Load and process texture using PIL first
+            if texture_path.exists():
+                print(f"\nLoading texture from: {texture_path}")
+                # Load and convert texture to RGBA
+                pil_image = Image.open(texture_path)
+                pil_image = pil_image.convert('RGBA')
+                
+                # Ensure dimensions are power of 2
+                target_size = (512, 512)
+                pil_image = pil_image.resize(target_size, Image.Resampling.LANCZOS)
+                
+                # Save processed texture
+                processed_texture_path = gen_dir / 'processed_texture.png'
+                pil_image.save(processed_texture_path)
+                print(f"Processed texture saved to: {processed_texture_path}")
+                
+                # Load processed texture
+                tex = loader.loadTexture(Filename.from_os_specific(str(processed_texture_path)))
+                if tex:
+                    tex.setFormat(Texture.FRgba)
+                    tex.setMagfilter(SamplerState.FT_nearest)
+                    tex.setMinfilter(SamplerState.FT_nearest)
+                    print("Texture loaded successfully")
+
+            # Try different texture application methods
             
-            print("Found both model and texture files, attempting to load...")
-            
-            # Try loading with explicit paths
-            self.artwork = Entity(
-                model=str(obj_path),
-                texture=str(texture_path),
-                scale=1.0,
-                position=(0, 1.5, 3),
-                rotation=(90, 0, 0),  # Adjust for coordinate system difference
-                double_sided=True
+            # Method 1: Direct texture assignment (left)
+            print(f"\nTrying OBJ with direct texture: {model_paths['obj']}")
+            self.obj_model = Entity(
+                model=str(model_paths['obj']),
+                texture=str(processed_texture_path),  # Direct texture assignment
+                position=(-6, 1.5, 3),
+                rotation=(0, 180, 0),
+                scale=1
             )
-            print(f"Model loaded: {self.artwork}")
-            
-            # Add model inspection
-            print(f"Model vertices: {len(self.artwork.model.vertices)}")
-            print(f"Model triangles: {len(self.artwork.model.triangles)}")
-            print(f"Model UVs: {len(self.artwork.model.uvs) if hasattr(self.artwork.model, 'uvs') else None}")
-            
-            # Add wireframe overlay
-            self.artwork_wireframe = Entity(
-                model=self.artwork.model,
-                position=self.artwork.position,
-                rotation=self.artwork.rotation,
-                scale=self.artwork.scale,
+            Entity(model='sphere', color=color.blue, scale=0.3, position=(-6, 1.5, 3))
+            print("Direct texture model created at (-6, 1.5, 3)")
+
+            # Method 2: Manual UV mapping (center-left)
+            print("\nTrying manual UV mapping")
+            self.uv_model = Entity(
+                model=str(model_paths['obj']),
+                position=(-3, 1.5, 3),
+                rotation=(0, 180, 0),
+                scale=1
+            )
+            if tex:
+                ts = TextureStage('ts')
+                ts.setMode(TextureStage.MModulate)
+                ts.setSort(0)
+                self.uv_model.model.setTexGen(ts, TexGenAttrib.MWorldPosition)  # Generate UVs based on world position
+                self.uv_model.model.setTexture(ts, tex)
+            Entity(model='sphere', color=color.red, scale=0.3, position=(-3, 1.5, 3))
+            print("UV mapped model created at (-3, 1.5, 3)")
+
+            # Method 3: Texture projection (center)
+            print("\nTrying texture projection")
+            self.projected_model = Entity(
+                model=str(model_paths['obj']),
+                position=(0, 1.5, 3),
+                rotation=(0, 180, 0),
+                scale=1
+            )
+            if tex:
+                ts = TextureStage('ts')
+                ts.setMode(TextureStage.MDecal)  # Use decal mode for projection
+                self.projected_model.model.setTexGen(ts, TexGenAttrib.MEyeSphereMap)  # Spherical projection
+                self.projected_model.model.setTexture(ts, tex)
+            Entity(model='sphere', color=color.green, scale=0.3, position=(0, 1.5, 3))
+            print("Projected texture model created at (0, 1.5, 3)")
+
+            # Method 4: Colored version (center-right)
+            print("\nCreating colored version")
+            self.colored_model = Entity(
+                model=str(model_paths['obj']),
+                position=(3, 1.5, 3),
+                rotation=(0, 180, 0),
+                scale=1,
+                color=color.pink
+            )
+            Entity(model='sphere', color=color.yellow, scale=0.3, position=(3, 1.5, 3))
+            print("Colored model created at (3, 1.5, 3)")
+
+            # Method 5: Wireframe version (right)
+            print("\nCreating wireframe version")
+            self.wireframe_model = Entity(
+                model=str(model_paths['obj']),
+                position=(6, 1.5, 3),
+                rotation=(0, 180, 0),
+                scale=1,
                 color=color.cyan,
                 wireframe=True
             )
-            print("Wireframe overlay created")
+            Entity(model='sphere', color=color.magenta, scale=0.3, position=(6, 1.5, 3))
+            print("Wireframe model created at (6, 1.5, 3)")
+
+            # Store reference to main artwork for existing controls
+            self.artwork = self.projected_model
+            
+            print("\nDebug positions:")
+            print(f"Direct texture: Vec3(-6, 1.5, 3)")
+            print(f"UV mapped: Vec3(-3, 1.5, 3)")
+            print(f"Projected: Vec3(0, 1.5, 3)")
+            print(f"Colored: Vec3(3, 1.5, 3)")
+            print(f"Wireframe: Vec3(6, 1.5, 3)")
             
         except Exception as e:
-            print(f"Model loading failed with error: {str(e)}")
-            print(f"Error type: {type(e)}")
-            import traceback
+            print(f"Model loading failed: {str(e)}")
             traceback.print_exc()
+            print("Creating fallback cube...")
             
             # Fallback cube
             self.artwork = Entity(
                 model='cube',
                 position=(0, 1.5, 3),
-                scale=(2, 2, 2),
-                color=color.magenta,
-                collider='box'
+                scale=2,
+                color=color.magenta
             )
             print("Created fallback cube")
 
@@ -189,10 +258,10 @@ class ArtGalleryViewer:
         if key == 'escape':
             print("Quitting application")
             application.quit()
-        elif key == 'o':
-            if hasattr(self, 'artwork_wireframe'):
-                self.artwork_wireframe.enabled = not self.artwork_wireframe.enabled
-                print(f"Wireframe {'enabled' if self.artwork_wireframe.enabled else 'disabled'}")
+        # elif key == 'o':
+        #     if hasattr(self, 'artwork_wireframe'):
+        #         self.artwork_wireframe.enabled = not self.artwork_wireframe.enabled
+        #         print(f"Wireframe {'enabled' if self.artwork_wireframe.enabled else 'disabled'}")
         elif key == 'p':
             print(f"\nDebug Info:")
             print(f"Player position: {self.player.position}")
