@@ -11,6 +11,7 @@ from shutil import copy
 from PIL import Image
 from hy3dgen.shapegen import Hunyuan3DDiTFlowMatchingPipeline, FaceReducer, FloaterRemover, DegenerateFaceRemover
 import numpy as np
+import subprocess
 
 def ensure_model_downloaded():
     models_dir = Path('models')
@@ -112,29 +113,25 @@ try:
     # Apply texture to processed mesh
     textured_mesh = paint_pipeline(processed_mesh, image=TEST_IMAGE)
     
-    # Upscale texture if present
-    if hasattr(textured_mesh.visual, 'material') and hasattr(textured_mesh.visual.material, 'image'):
-        print("Upscaling texture...")
-        original_texture = textured_mesh.visual.material.image
+    # Save original texture
+    original_texture_path = gen_dir / 'original_texture.png'
+    Image.fromarray(textured_mesh.visual.material.image).save(original_texture_path)
+
+    # Upscale using external process
+    try:
+        upscaled_path = gen_dir / 'texture_4k.png'
+        subprocess.run([
+            'conda', 'run', '-n', 'realesrgan',
+            'python', 'src/upscaler/test_upscaler.py',
+            '--input', str(original_texture_path),
+            '--output_dir', str(gen_dir),
+            '--output_filename', 'texture_4k.png'
+        ], check=True)
         
-        # Save original texture for reference
-        original_texture_path = gen_dir / 'original_texture.png'
-        if isinstance(original_texture, Image.Image):
-            original_texture.save(original_texture_path)
-        else:
-            Image.fromarray(original_texture).save(original_texture_path)
-        
-        # Upscale the texture
-        try:
-            upscaled_texture = upscale_texture(original_texture)
-            textured_mesh.visual.material.image = Image.fromarray(upscaled_texture)
-            
-            # Save upscaled texture separately
-            Image.fromarray(upscaled_texture).save(gen_dir / 'upscaled_texture.png')
-            print(f"Texture upscaled successfully")
-        except Exception as e:
-            print(f"Upscaling failed: {e}")
-            # Fallback to original texture
+        # Load upscaled texture
+        textured_mesh.visual.material.image = Image.open(upscaled_path)
+    except subprocess.CalledProcessError as e:
+        print(f"Upscaling failed, using original texture: {e}")
     
     # Save textured model with upscaled texture
     print(f"Saving models to {gen_dir}...")

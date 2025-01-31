@@ -45,7 +45,7 @@ def upscale_texture(img):
     
     return output
 
-def test_upscaling(input_path, output_dir, output_filename='upscaled_texture.png'):
+def test_upscaling(input_path, output_dir, output_filename):
     """Test the upscaler with a real texture file"""
     try:
         # Create output directory
