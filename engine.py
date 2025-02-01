@@ -85,18 +85,18 @@ class ArtGalleryViewer:
         )
         
     def get_generation_path(self):
-        """Get the path to generation_21"""
-        return Path('output/generation_21')
+        """Get the path to generation_27"""
+        return Path('output/generation_27')
 
     def load_artwork(self):
         """Load and display the 3D model with debug visuals"""
-        gen_dir = Path('output/generation_21')
+        gen_dir = Path('output/generation_27')
         
         try:
             # Define paths
             model_paths = {
-                'obj': gen_dir / 'textured.obj',
-                'glb': gen_dir / 'textured.glb',
+                'obj': gen_dir / 'base_mesh.obj',
+                'glb': gen_dir / 'untextured_mesh.glb',
                 'processed': gen_dir / 'processed_base.glb',
             }
             texture_path = gen_dir / 'texture.png'

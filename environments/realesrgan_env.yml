@@ -1,0 +1,29 @@
+name: realesrgan
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+dependencies:
+  # Core Python and CUDA (matching main env's CUDA version)
+  - python=3.9  # RealESRGAN works well with Python 3.9
+  - pytorch-cuda=11.8
+  - cudatoolkit
+  
+  # PyTorch ecosystem (specific versions for RealESRGAN)
+  - torchvision
+
+  # Core dependencies
+  - pip
+  - pip:
+      # RealESRGAN and its dependencies
+      - basicsr
+      - realesrgan
+      - opencv-python-headless
+      
+      # Essential utilities
+      - numpy
+      - pillow
+      - tqdm
+      
+      # Remove unnecessary packages like tb-nightly

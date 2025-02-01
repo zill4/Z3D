@@ -1,4 +1,7 @@
 # ninja log v6
-28	13073	7598307786137800	C:/Users/justc/Code/Z3D/hy3dgen/texgen/custom_rasterizer/build/temp.win-amd64-cpython-310/Release/lib/custom_rasterizer_kernel/rasterizer.obj	6533b8b794e76c03
-8	13111	7598307785937441	C:/Users/justc/Code/Z3D/hy3dgen/texgen/custom_rasterizer/build/temp.win-amd64-cpython-310/Release/lib/custom_rasterizer_kernel/grid_neighbor.obj	43dd056dc0f4b93b
-30	39424	7598307786157798	C:/Users/justc/Code/Z3D/hy3dgen/texgen/custom_rasterizer/build/temp.win-amd64-cpython-310/Release/lib/custom_rasterizer_kernel/rasterizer_gpu.obj	599a80ae6ad3790e
+14	11380	7600708291084879	C:/Users/justc/Code/Z3D/hy3dgen/texgen/custom_rasterizer/build/temp.win-amd64-cpython-310/Release/lib/custom_rasterizer_kernel/rasterizer.obj	d3260b087490d603
+9	11438	7600708291039772	C:/Users/justc/Code/Z3D/hy3dgen/texgen/custom_rasterizer/build/temp.win-amd64-cpython-310/Release/lib/custom_rasterizer_kernel/grid_neighbor.obj	5bba269e2dd7aebe
+17	33475	7600708291109957	C:/Users/justc/Code/Z3D/hy3dgen/texgen/custom_rasterizer/build/temp.win-amd64-cpython-310/Release/lib/custom_rasterizer_kernel/rasterizer_gpu.obj	1bfc24e154354802
+52	12140	7600776087166270	C:/Users/justc/Code/Z3D/hy3dgen/texgen/custom_rasterizer/build/temp.win-amd64-cpython-310/Release/lib/custom_rasterizer_kernel/rasterizer.obj	6533b8b794e76c03
+48	12467	7600776090459107	C:/Users/justc/Code/Z3D/hy3dgen/texgen/custom_rasterizer/build/temp.win-amd64-cpython-310/Release/lib/custom_rasterizer_kernel/grid_neighbor.obj	43dd056dc0f4b93b
+54	40464	7600776370133471	C:/Users/justc/Code/Z3D/hy3dgen/texgen/custom_rasterizer/build/temp.win-amd64-cpython-310/Release/lib/custom_rasterizer_kernel/rasterizer_gpu.obj	599a80ae6ad3790e

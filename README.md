@@ -16,6 +16,7 @@ __________________  ________
 ## 🌟 Current Capabilities
 - [x] Environment validation system
 - [x] Text-to-mesh generation
+- [ ]Texture generation (upscaled) -> Need to fix the upscaling loop.
 - [ ] Automatic character rigging
 - [ ] Motion template integration
 - [ ] UE5/Unity export pipeline
@@ -23,17 +24,8 @@ __________________  ________
 ## 📋 Prerequisites
 
 ### Required Software
-1. **Python 3.10.9**
-   - Download: [Python 3.10.9 Windows Installer](https://www.python.org/ftp/python/3.10.9/python-3.10.9-amd64.exe)
-   - Install with "Add Python to PATH" checked
-
-2. **Blender 3.6.2**
-   - Download: [Blender Windows x64](https://download.blender.org/release/Blender3.6/blender-3.6.2-windows-x64.msi)
-   - Default installation is fine
-
-3. **Meshlab 2023.12**
-   - Download: [Meshlab Windows](https://www.meshlab.net/#download)
-   - Install to default location
+follow steps in plan using conda install
+may need to manually install all the other bs
 
 ### System Requirements
 - Windows 10/11

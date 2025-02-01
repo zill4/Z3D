@@ -1,15 +1,10 @@
-import os
-import base64
-import requests
-from hy3dgen.shapegen import Hunyuan3DDiTFlowMatchingPipeline
-from hy3dgen.texgen import Hunyuan3DPaintPipeline
-import trimesh
 import torch
 from pathlib import Path
 from glob import glob
 from shutil import copy
 from PIL import Image
 from hy3dgen.shapegen import Hunyuan3DDiTFlowMatchingPipeline, FaceReducer, FloaterRemover, DegenerateFaceRemover
+from hy3dgen.texgen import Hunyuan3DPaintPipeline
 import numpy as np
 import subprocess
 
@@ -114,24 +109,16 @@ try:
     textured_mesh = paint_pipeline(processed_mesh, image=TEST_IMAGE)
     
     # Save original texture
-    original_texture_path = gen_dir / 'original_texture.png'
-    Image.fromarray(textured_mesh.visual.material.image).save(original_texture_path)
+    texture_path = gen_dir / 'original_texture.png'
+    Image.fromarray(textured_mesh.visual.material.image).save(texture_path)
 
-    # Upscale using external process
-    try:
-        upscaled_path = gen_dir / 'texture_4k.png'
-        subprocess.run([
-            'conda', 'run', '-n', 'realesrgan',
-            'python', 'src/upscaler/test_upscaler.py',
-            '--input', str(original_texture_path),
-            '--output_dir', str(gen_dir),
-            '--output_filename', 'texture_4k.png'
-        ], check=True)
-        
-        # Load upscaled texture
+    # Upscale texture using separate process
+    upscaled_path = gen_dir / 'upscaled_texture.png'
+    if upscale_texture(texture_path, upscaled_path):
+        # Load upscaled texture back
         textured_mesh.visual.material.image = Image.open(upscaled_path)
-    except subprocess.CalledProcessError as e:
-        print(f"Upscaling failed, using original texture: {e}")
+    else:
+        print("Using original texture due to upscaling failure")
     
     # Save textured model with upscaled texture
     print(f"Saving models to {gen_dir}...")
@@ -199,46 +186,16 @@ except Exception as e:
     processed_mesh.export(str(gen_dir / "untextured_mesh.glb"))
     print("Saved untextured mesh as fallback")
 
-def upscale_texture(img):
-    """Custom SwinIR-based upscaler"""
-    import torch
-    from torchvision.transforms import ToTensor
-    from swinir import SwinIR  # Changed from relative import
-    
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model_path = Path('models/SwinIR/SwinIR_4x.pth')
-    
-    if not model_path.exists():
-        raise FileNotFoundError(
-            f"SwinIR model not found at {model_path}. "
-            "Run download_swinir_model.py first!"
-        )
-    
-    # Load model
-    model = SwinIR(
-        upscale=4,
-        img_size=64,
-        window_size=8,
-        img_range=1.0,
-        depths=[6, 6, 6, 6],
-        embed_dim=60,
-        num_heads=[6, 6, 6, 6],
-        mlp_ratio=2
-    ).to(device)
-    
-    model.load_state_dict(torch.load(model_path))
-    model.eval()
-    
-    # Convert input to tensor
-    if isinstance(img, Image.Image):
-        img_tensor = ToTensor()(img).unsqueeze(0).to(device)
-    else:
-        img_tensor = torch.from_numpy(img).permute(2,0,1).unsqueeze(0).to(device).float()/255.0
-    
-    # Process
-    with torch.no_grad():
-        output = model(img_tensor)
-    
-    # Convert back to numpy array
-    upscaled = output.squeeze().permute(1,2,0).clamp(0,1).cpu().numpy()
-    return (upscaled * 255).astype('uint8')
+def upscale_texture(texture_path, output_path):
+    """Upscale texture using RealESRGAN in a separate process"""
+    try:
+        subprocess.run([
+            'conda', 'run', '-n', 'realesrgan',
+            'python', 'scripts/upscale_texture.py',
+            '--input', str(texture_path),
+            '--output', str(output_path)
+        ], check=True)
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"Upscaling failed: {e}")
+        return False
