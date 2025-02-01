@@ -1,4 +1,4 @@
-# Z3D - Advanced Text-to-3D Generation Pipeline 🎮
+# Z3D - Advanced Image-to-3D Generation Pipeline 🎮
 
 <div align="center">
 
