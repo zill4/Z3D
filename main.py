@@ -7,6 +7,56 @@ from hy3dgen.shapegen import Hunyuan3DDiTFlowMatchingPipeline, FaceReducer, Floa
 from hy3dgen.texgen import Hunyuan3DPaintPipeline
 import numpy as np
 import subprocess
+import sys
+import os
+import time
+
+def upscale_texture(texture_path: Path, output_path: Path) -> bool:
+    """Upscale texture using RealESRGAN with proper synchronization"""
+    print(f"Starting texture upscaling from {texture_path} to {output_path}")
+    
+    try:
+        # Get conda executable reliably across platforms
+        conda_executable = None
+        try:
+            if sys.platform == "win32":
+                conda_executable = Path(subprocess.check_output(["where", "conda"], shell=True).decode().split()[0])
+            else:
+                conda_executable = Path(subprocess.check_output(["which", "conda"]).decode().strip())
+        except (subprocess.CalledProcessError, IndexError):
+            conda_executable = Path(sys.executable).parent.parent / "Scripts" / "conda.exe"
+
+        if not conda_executable.exists():
+            raise FileNotFoundError(f"Conda executable not found at {conda_executable}")
+
+        # Ensure output directory exists
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Directly call the upscaler script with proper paths
+        result = subprocess.run([
+            str(conda_executable), 'run', '-n', 'realesrgan',
+            'python', 'scripts/upscale_texture.py',
+            '--input', str(texture_path.resolve()),
+            '--output', str(output_path.resolve())
+        ], check=True, capture_output=True, text=True, timeout=300)
+
+        print(f"Upscaling completed with status: {result.returncode}")
+        
+        if output_path.exists():
+            print(f"Successfully upscaled texture to {output_path}")
+            return True
+            
+        print(f"Upscaling completed but output missing at {output_path}")
+        return False
+        
+    except subprocess.CalledProcessError as e:
+        print(f"Upscaling failed with error code {e.returncode}")
+        print(f"Error output:\n{e.stderr}")
+        print(f"Standard output:\n{e.stdout}")
+        return False
+    except Exception as e:
+        print(f"Unexpected error during upscaling: {str(e)}")
+        return False
 
 def ensure_model_downloaded():
     models_dir = Path('models')
@@ -106,19 +156,62 @@ paint_pipeline.set_intermediate_dir(str(intermediate_dir))
 print("Generating texture...")
 try:
     # Apply texture to processed mesh
+    print("Starting texture generation with paint_pipeline...")
     textured_mesh = paint_pipeline(processed_mesh, image=TEST_IMAGE)
+    print("Texture generation completed successfully")
     
     # Save original texture
     texture_path = gen_dir / 'original_texture.png'
-    Image.fromarray(textured_mesh.visual.material.image).save(texture_path)
-
-    # Upscale texture using separate process
-    upscaled_path = gen_dir / 'upscaled_texture.png'
-    if upscale_texture(texture_path, upscaled_path):
-        # Load upscaled texture back
-        textured_mesh.visual.material.image = Image.open(upscaled_path)
+    print(f"Saving original texture to {texture_path}")
+    
+    # Handle texture saving based on type
+    if isinstance(textured_mesh.visual.material.image, Image.Image):
+        print("Texture is already a PIL Image, saving directly")
+        textured_mesh.visual.material.image.save(texture_path)
+    elif isinstance(textured_mesh.visual.material.image, np.ndarray):
+        print("Texture is numpy array, converting to PIL Image")
+        Image.fromarray(textured_mesh.visual.material.image).save(texture_path)
     else:
-        print("Using original texture due to upscaling failure")
+        print(f"Unexpected texture type: {type(textured_mesh.visual.material.image)}")
+        raise TypeError(f"Unexpected texture type: {type(textured_mesh.visual.material.image)}")
+
+    # Verify texture was saved
+    if not texture_path.exists():
+        raise FileNotFoundError(f"Failed to save texture to {texture_path}")
+    print(f"Successfully saved texture to {texture_path}")
+
+    # Attempt to upscale texture
+    print("Attempting to upscale texture...")
+    upscaled_path = gen_dir / 'upscaled_texture.png'
+
+    # Add synchronization point
+    if texture_path.exists():
+        print(f"Found original texture at {texture_path}")
+        
+        # Wait for file to be fully written
+        for _ in range(10):
+            try:
+                with texture_path.open('rb') as f:
+                    f.seek(-2, 2)
+                    break
+            except IOError:
+                time.sleep(0.5)
+        else:
+            print("Timeout waiting for texture file to be ready")
+        
+        # Verify file can be opened
+        try:
+            Image.open(texture_path).verify()
+        except Exception as e:
+            print(f"Invalid texture file: {e}")
+            texture_path.unlink(missing_ok=True)
+        
+        if upscale_texture(texture_path, upscaled_path):
+            print("Upscale successful!")
+        else:
+            print("Using original texture due to upscaling failure")
+    else:
+        print(f"Critical error: Original texture missing at {texture_path}")
     
     # Save textured model with upscaled texture
     print(f"Saving models to {gen_dir}...")
@@ -182,20 +275,9 @@ try:
     print(f"GPU Memory: {torch.cuda.memory_allocated() / 1024**2:.2f}MB")
 
 except Exception as e:
-    print(f"Texture generation failed: {e}")
+    print(f"Texture generation failed with error: {str(e)}")
+    print(f"Error type: {type(e)}")
+    import traceback
+    print(f"Full traceback:\n{traceback.format_exc()}")
     processed_mesh.export(str(gen_dir / "untextured_mesh.glb"))
     print("Saved untextured mesh as fallback")
-
-def upscale_texture(texture_path, output_path):
-    """Upscale texture using RealESRGAN in a separate process"""
-    try:
-        subprocess.run([
-            'conda', 'run', '-n', 'realesrgan',
-            'python', 'scripts/upscale_texture.py',
-            '--input', str(texture_path),
-            '--output', str(output_path)
-        ], check=True)
-        return True
-    except subprocess.CalledProcessError as e:
-        print(f"Upscaling failed: {e}")
-        return False

@@ -1,6 +1,6 @@
-# Z3D - Text-to-3D Workflow Pipeline 🚀
+# Z3D - Advanced Text-to-3D Generation Pipeline 🎮
 
-![Workflow Diagram](https://via.placeholder.com/800x200.png?text=Text+→+3D+Mesh+→+Rigging+→+Animation+→+Game+Engine)
+<div align="center">
 
 A complete local pipeline for generating rigged 3D assets from text prompts. Powered by DeepSeek-R1.
 
@@ -13,34 +13,33 @@ __________________  ________
         \/       \/         \/
 ```
 
-## 🌟 Current Capabilities
-- [x] Environment validation system
-- [x] Text-to-mesh generation
-- [ ]Texture generation (upscaled) -> Need to fix the upscaling loop.
-- [ ] Automatic character rigging
-- [ ] Motion template integration
-- [ ] UE5/Unity export pipeline
+## 🛠️ Technical Stack
 
-## 📋 Prerequisites
+- **3D Generation**: Hunyuan3D-2
+- **Texture Upscaling**: RealESRGAN
+- **Visualization**: Ursina Engine
+- **Core Dependencies**: PyTorch, Trimesh
 
-### Required Software
-follow steps in plan using conda install
-may need to manually install all the other bs
+## 💻 System Requirements
 
-### System Requirements
+- NVIDIA GPU with 24.5GB+ VRAM (for full pipeline)
+- CUDA 11.8+
 - Windows 10/11
-- NVIDIA GPU (RTX 2070+ recommended)
-- CUDA Toolkit 11.8
-- 16GB+ RAM recommended
+- 32GB RAM recommended
 
 ## 🚀 Quick Start
 
 1. Install prerequisites listed above
 2. Clone repository:
 
-```powershell
-git clone https://github.com/zill4/z3d-pipeline
-cd z3d-pipeline
+```
+realesrgan install steps
+# 1. Clean start
+conda deactivate
+conda env remove -n realesrgan
+
+pip install torch==2.3.1 torchvision==0.18.1 torchaudio==2.3.1 --index-url https://download.pytorch.org/whl/cu121
+
 ```
 
 ## 🛠️ Validation Suite
@@ -82,3 +81,49 @@ Licensed under MIT :: Contributions welcome
 Maintained by zill4 | Powered by DeepSeek-R1
 
 > **Note** This is Phase I focusing on core generation capabilities. Phase II will introduce animation systems and game engine integration.
+
+## 📊 Generation Pipeline
+
+1. **Mesh Generation**
+   - Input: Reference image
+   - Output: High-poly mesh (250k+ faces)
+   - Format: OBJ/GLB
+
+2. **Texture Processing**
+   - Base texture generation (1024x1024)
+   - AI upscaling to 4K resolution
+   - Multiple format support (PNG/RGBA)
+
+3. **Visualization**
+   - Interactive gallery viewer
+   - Multiple rendering techniques
+   - Real-time comparison tools
+
+## 🎯 Current Progress
+
+- [x] Base mesh generation pipeline
+- [x] Texture synthesis and upscaling
+- [x] Interactive viewer implementation
+- [x] Multiple rendering methods
+- [ ] Automated rigging system (Planned)
+- [ ] Animation support (Planned)
+- [ ] Game engine export pipeline (Planned)
+
+## 🔍 Debug Tools
+
+- Real-time position tracking
+- Texture loading verification
+- Model comparison views
+- Performance monitoring
+
+## 📝 License
+
+MIT License - See LICENSE file for details
+
+---
+
+<div align="center">
+
+*Created with ❤️ by zill4*
+
+</div>
