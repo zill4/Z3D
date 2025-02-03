@@ -75,4 +75,10 @@ dmypy.json
 
 # Local development settings
 local_settings.py
+moodels/*
+
+models/*.pth
 models/*
+output/generation_*
+RealESRGAN_x4plus.pth
+./Real_ESRGAN

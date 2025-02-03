@@ -3,7 +3,7 @@ from ursina.prefabs.first_person_controller import FirstPersonController
 from ursina.lights import PointLight, AmbientLight
 from pathlib import Path
 import os
-from panda3d.core import Filename, Texture, NodePath, TransparencyAttrib, TextureStage, SamplerState, TexGenAttrib
+from panda3d.core import Filename, Texture, NodePath, TransparencyAttrib, TextureStage, SamplerState, TexGenAttrib, TransformState, Vec3
 from direct.actor.Actor import Actor
 import traceback
 from PIL import Image
@@ -94,131 +94,126 @@ class ArtGalleryViewer:
         return max(generations, key=lambda x: int(x.name.split('_')[1]))
 
     def load_artwork(self):
-        """Load artwork from generation 32 with correct file structure"""
-        gen_dir = Path('output/generation_32')  # Hardcoded for testing
+        """Load artwork with correct UV scaling"""
+        gen_dir = Path('output/generation_36')
         print(f"Loading artwork from: {gen_dir}")
         
         try:
             # Define paths with correct filenames
             model_path = gen_dir / 'base_mesh.obj'
             original_texture_path = gen_dir / 'original_texture.png'
-            upscaled_texture_path = gen_dir / 'upscaled.png'  # Correct path to upscaled texture
+            upscaled_texture_path = gen_dir / 'upscaled.png'
             
             print(f"\nChecking paths:")
             print(f"Model path: {model_path}")
             print(f"Original texture: {original_texture_path}")
             print(f"Upscaled texture: {upscaled_texture_path}")
 
-            # First try to use the upscaled texture
             texture_path = upscaled_texture_path if upscaled_texture_path.exists() else original_texture_path
             print(f"Using texture: {texture_path}")
 
-            # Load and process texture
             if texture_path.exists():
                 print("\nLoading and processing texture...")
-                pil_image = Image.open(str(texture_path)).convert('RGBA')
-                
-                # Process texture for optimal rendering
-                width, height = pil_image.size
-                new_size = (
-                    2 ** int(np.log2(width)),
-                    2 ** int(np.log2(height))
-                )
-                pil_image = pil_image.resize(new_size, Image.Resampling.LANCZOS)
-                
-                processed_texture_path = gen_dir / 'processed_texture.png'
-                pil_image.save(processed_texture_path)
-                print(f"Processed texture saved to: {processed_texture_path}")
                 
                 # Load texture with optimal settings
-                tex = loader.loadTexture(Filename.from_os_specific(str(processed_texture_path)))
+                tex = loader.loadTexture(Filename.from_os_specific(str(texture_path)))
                 tex.setFormat(Texture.FRgba)
                 tex.setMagfilter(SamplerState.FT_linear)
                 tex.setMinfilter(SamplerState.FT_linear_mipmap_linear)
                 tex.setAnisotropicDegree(16)
+                
+                # Create texture transform for UV scaling
+                if texture_path == upscaled_texture_path:
+                    transform = TransformState.makeScale(Vec3(0.25, 0.25, 1.0))  # For 4x upscale
+                    ts = TextureStage('ts')
+                    ts.setTexture(tex)
+                    ts.setTexTransform(transform)
+                
+                # Load texture with UV scaling
+                pil_image = Image.open(str(texture_path)).convert('RGBA')
+                
+                # Apply to models
+                self.obj_model = Entity(
+                    model=str(model_path),
+                    position=(-6, 1.5, 3),
+                    rotation=(0, 180, 0),
+                    scale=1
+                )
+                self.obj_model.model.setTexture(ts, tex)
+                Entity(model='sphere', color=color.blue, scale=0.3, position=(-6, 1.5, 3))
+                print("Direct texture model created at (-6, 1.5, 3)")
+
+                # Method 2: UV mapping (center-left)
+                print("\nTrying UV mapping with upscaled texture")
+                self.uv_model = Entity(
+                    model=str(model_path),
+                    position=(-3, 1.5, 3),
+                    rotation=(0, 180, 0),
+                    scale=1
+                )
+                if tex:
+                    ts = TextureStage('ts')
+                    ts.setMode(TextureStage.MModulate)
+                    ts.setSort(0)
+                    self.uv_model.model.setTexGen(ts, TexGenAttrib.MWorldPosition)
+                    self.uv_model.model.setTexture(ts, tex)
+                Entity(model='sphere', color=color.red, scale=0.3, position=(-3, 1.5, 3))
+                print("UV mapped model created at (-3, 1.5, 3)")
+
+                # Method 3: GLB with embedded texture (center)
+                print("\nLoading GLB version")
+                self.glb_model = Entity(
+                    model=str(gen_dir / 'textured.glb'),
+                    position=(0, 1.5, 3),
+                    rotation=(0, 180, 0),
+                    scale=1
+                )
+                Entity(model='sphere', color=color.green, scale=0.3, position=(0, 1.5, 3))
+                print("GLB model created at (0, 1.5, 3)")
+
+                # Method 4: Texture projection (center-right)
+                print("\nTrying texture projection with upscaled texture")
+                self.projected_model = Entity(
+                    model=str(model_path),
+                    position=(3, 1.5, 3),
+                    rotation=(0, 180, 0),
+                    scale=1
+                )
+                if tex:
+                    ts = TextureStage('ts')
+                    ts.setMode(TextureStage.MDecal)
+                    self.projected_model.model.setTexGen(ts, TexGenAttrib.MEyeSphereMap)
+                    self.projected_model.model.setTexture(ts, tex)
+                Entity(model='sphere', color=color.yellow, scale=0.3, position=(3, 1.5, 3))
+                print("Projected texture model created at (3, 1.5, 3)")
+
+                # Method 5: Wireframe with texture (right)
+                print("\nCreating textured wireframe")
+                self.wireframe_model = Entity(
+                    model=str(model_path),
+                    texture=str(texture_path),
+                    position=(6, 1.5, 3),
+                    rotation=(0, 180, 0),
+                    scale=1,
+                    wireframe=True
+                )
+                Entity(model='sphere', color=color.magenta, scale=0.3, position=(6, 1.5, 3))
+                print("Wireframe model created at (6, 1.5, 3)")
+
+                # Store reference to main artwork for controls
+                self.artwork = self.glb_model  # Use GLB as main reference
+                
+                print("\nDebug positions:")
+                print(f"Direct texture: Vec3(-6, 1.5, 3)")
+                print(f"UV mapped: Vec3(-3, 1.5, 3)")
+                print(f"GLB: Vec3(0, 1.5, 3)")
+                print(f"Projected: Vec3(3, 1.5, 3)")
+                print(f"Wireframe: Vec3(6, 1.5, 3)")
+                
             else:
                 tex = None
                 print("Warning: Texture not found!")
 
-            # Method 1: Direct texture assignment (left)
-            print(f"\nTrying OBJ with direct upscaled texture: {model_path}")
-            self.obj_model = Entity(
-                model=str(model_path),
-                texture=str(processed_texture_path),  # Direct texture assignment
-                position=(-6, 1.5, 3),
-                rotation=(0, 180, 0),
-                scale=1
-            )
-            Entity(model='sphere', color=color.blue, scale=0.3, position=(-6, 1.5, 3))
-            print("Direct texture model created at (-6, 1.5, 3)")
-
-            # Method 2: UV mapping (center-left)
-            print("\nTrying UV mapping with upscaled texture")
-            self.uv_model = Entity(
-                model=str(model_path),
-                position=(-3, 1.5, 3),
-                rotation=(0, 180, 0),
-                scale=1
-            )
-            if tex:
-                ts = TextureStage('ts')
-                ts.setMode(TextureStage.MModulate)
-                ts.setSort(0)
-                self.uv_model.model.setTexGen(ts, TexGenAttrib.MWorldPosition)
-                self.uv_model.model.setTexture(ts, tex)
-            Entity(model='sphere', color=color.red, scale=0.3, position=(-3, 1.5, 3))
-            print("UV mapped model created at (-3, 1.5, 3)")
-
-            # Method 3: GLB with embedded texture (center)
-            print("\nLoading GLB version")
-            self.glb_model = Entity(
-                model=str(gen_dir / 'textured.glb'),
-                position=(0, 1.5, 3),
-                rotation=(0, 180, 0),
-                scale=1
-            )
-            Entity(model='sphere', color=color.green, scale=0.3, position=(0, 1.5, 3))
-            print("GLB model created at (0, 1.5, 3)")
-
-            # Method 4: Texture projection (center-right)
-            print("\nTrying texture projection with upscaled texture")
-            self.projected_model = Entity(
-                model=str(model_path),
-                position=(3, 1.5, 3),
-                rotation=(0, 180, 0),
-                scale=1
-            )
-            if tex:
-                ts = TextureStage('ts')
-                ts.setMode(TextureStage.MDecal)
-                self.projected_model.model.setTexGen(ts, TexGenAttrib.MEyeSphereMap)
-                self.projected_model.model.setTexture(ts, tex)
-            Entity(model='sphere', color=color.yellow, scale=0.3, position=(3, 1.5, 3))
-            print("Projected texture model created at (3, 1.5, 3)")
-
-            # Method 5: Wireframe with texture (right)
-            print("\nCreating textured wireframe")
-            self.wireframe_model = Entity(
-                model=str(model_path),
-                texture=str(processed_texture_path),
-                position=(6, 1.5, 3),
-                rotation=(0, 180, 0),
-                scale=1,
-                wireframe=True
-            )
-            Entity(model='sphere', color=color.magenta, scale=0.3, position=(6, 1.5, 3))
-            print("Wireframe model created at (6, 1.5, 3)")
-
-            # Store reference to main artwork for controls
-            self.artwork = self.glb_model  # Use GLB as main reference
-            
-            print("\nDebug positions:")
-            print(f"Direct texture: Vec3(-6, 1.5, 3)")
-            print(f"UV mapped: Vec3(-3, 1.5, 3)")
-            print(f"GLB: Vec3(0, 1.5, 3)")
-            print(f"Projected: Vec3(3, 1.5, 3)")
-            print(f"Wireframe: Vec3(6, 1.5, 3)")
-            
         except Exception as e:
             print(f"Artwork loading failed: {str(e)}")
             traceback.print_exc()

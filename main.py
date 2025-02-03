@@ -10,8 +10,17 @@ import subprocess
 import sys
 import os
 import time
+import stat
 
-def upscale_texture(texture_path: Path, output_path: Path) -> bool:
+def ensure_write_permissions(path):
+    """Ensure write permissions on Windows"""
+    if os.name == 'nt':  # Windows
+        try:
+            os.chmod(path, stat.S_IWRITE)
+        except OSError:
+            pass
+
+def upscale_texture(texture_path: Path, output_path: Path, original_size: int, target_size: int) -> bool:
     """Upscale texture using RealESRGAN with proper synchronization"""
     print(f"Starting texture upscaling from {texture_path} to {output_path}")
     
@@ -32,16 +41,24 @@ def upscale_texture(texture_path: Path, output_path: Path) -> bool:
         # Ensure output directory exists
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Directly call the upscaler script with proper paths
+        # Directly call the upscaler script with proper paths (fixed argument names)
         result = subprocess.run([
             str(conda_executable), 'run', '-n', 'realesrgan',
             'python', 'scripts/upscale_texture.py',
             '--input', str(texture_path.resolve()),
-            '--output', str(output_path.resolve())
+            '--output', str(output_path.resolve()),
+            '--original-size', str(original_size),  # Changed from original_size
+            '--target-size', str(target_size)      # Changed from target_size
         ], check=True, capture_output=True, text=True, timeout=300)
 
-        print(f"Upscaling completed with status: {result.returncode}")
-        
+        # Print output for debugging
+        if result.stdout:
+            print("Upscaler output:")
+            print(result.stdout)
+        if result.stderr:
+            print("Upscaler errors:")
+            print(result.stderr)
+
         if output_path.exists():
             print(f"Successfully upscaled texture to {output_path}")
             return True
@@ -59,17 +76,26 @@ def upscale_texture(texture_path: Path, output_path: Path) -> bool:
         return False
 
 def ensure_model_downloaded():
+    """Ensure RealESRGAN model exists"""
     models_dir = Path('models')
     models_dir.mkdir(exist_ok=True)
     
     model_path = models_dir / 'RealESRGAN_x4plus.pth'
+    
+    # Check if model exists in repo first
+    repo_model = Path('models/RealESRGAN_x4plus.pth')
+    if repo_model.exists():
+        print(f"Using RealESRGAN model from repo")
+        if not model_path.exists():
+            shutil.copy2(repo_model, model_path)
+        return model_path
+    
+    # If not in repo, download only if needed
     if not model_path.exists():
-        print("Please Download RealESRGAN model")
-        # import gdown
-        # gdown.download(
-        #     'https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth',
-        #     str(model_path)
-        # )
+        print("Downloading RealESRGAN model...")
+        url = 'https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth'
+        torch.hub.download_url_to_file(url, str(model_path))
+        print(f"Model downloaded to {model_path}")
     return model_path
 
 def get_next_number():
@@ -110,7 +136,10 @@ image = image.convert('RGB')  # Convert back to RGB for processing
 
 # Generate shape first
 print("Initializing shape pipeline...")
-shape_pipeline = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained('tencent/Hunyuan3D-2')
+shape_pipeline = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(
+    'tencent/Hunyuan3D-2',
+    cache_dir='models/hunyuan/shape_pipeline'
+)
 
 print("Generating 3D shape...")
 mesh = shape_pipeline(image=TEST_IMAGE)[0]
@@ -129,17 +158,6 @@ processed_mesh.fill_holes()                           # Fill any remaining holes
 
 print(f"Processed mesh faces: {len(processed_mesh.faces)}")
 
-# Save processed base mesh
-print("Saving processed base mesh...")
-# Export OBJ with UV coordinates
-processed_mesh.export(
-    str(gen_dir / "base_mesh.obj"),
-    include_normals=True,
-    include_texture=True,  # For UV coordinates
-    resolver=None,  # For material handling
-    mtl_name=str(gen_dir / 'material.mtl')  # Material file name
-)
-
 # Generate texture using the processed mesh
 print("Initializing texture pipeline...")
 paint_pipeline = Hunyuan3DPaintPipeline.from_pretrained('tencent/Hunyuan3D-2')
@@ -155,124 +173,67 @@ paint_pipeline.set_intermediate_dir(str(intermediate_dir))
 
 print("Generating texture...")
 try:
-    # Apply texture to processed mesh
-    print("Starting texture generation with paint_pipeline...")
+    # Generate and save base mesh
+    processed_mesh.export(
+        str(gen_dir / "base_mesh.obj"),
+        include_normals=True,
+        include_texture=True
+    )
+
+    # Generate texture
     textured_mesh = paint_pipeline(processed_mesh, image=TEST_IMAGE)
-    print("Texture generation completed successfully")
     
     # Save original texture
     texture_path = gen_dir / 'original_texture.png'
-    print(f"Saving original texture to {texture_path}")
+    if isinstance(textured_mesh.visual.material.image, (Image.Image, np.ndarray)):
+        img = textured_mesh.visual.material.image
+        if isinstance(img, np.ndarray):
+            img = Image.fromarray(img)
+        img.save(texture_path)
     
-    # Handle texture saving based on type
-    if isinstance(textured_mesh.visual.material.image, Image.Image):
-        print("Texture is already a PIL Image, saving directly")
-        textured_mesh.visual.material.image.save(texture_path)
-    elif isinstance(textured_mesh.visual.material.image, np.ndarray):
-        print("Texture is numpy array, converting to PIL Image")
-        Image.fromarray(textured_mesh.visual.material.image).save(texture_path)
-    else:
-        print(f"Unexpected texture type: {type(textured_mesh.visual.material.image)}")
-        raise TypeError(f"Unexpected texture type: {type(textured_mesh.visual.material.image)}")
-
-    # Verify texture was saved
-    if not texture_path.exists():
-        raise FileNotFoundError(f"Failed to save texture to {texture_path}")
-    print(f"Successfully saved texture to {texture_path}")
-
-    # Attempt to upscale texture
-    print("Attempting to upscale texture...")
-    upscaled_path = gen_dir / 'upscaled_texture.png'
-
-    # Add synchronization point
-    if texture_path.exists():
-        print(f"Found original texture at {texture_path}")
-        
-        # Wait for file to be fully written
-        for _ in range(10):
+    # Upscale texture
+    upscaled_path = gen_dir / 'upscaled.png'
+    if upscale_texture(
+        texture_path=texture_path,
+        output_path=upscaled_path,
+        original_size=paint_pipeline.view_size,
+        target_size=paint_pipeline.texture_size
+    ):
+        print("Upscale successful!")
+        # Only try to load upscaled texture if upscaling succeeded
+        if upscaled_path.exists():  # Double check file exists
             try:
-                with texture_path.open('rb') as f:
-                    f.seek(-2, 2)
-                    break
-            except IOError:
-                time.sleep(0.5)
-        else:
-            print("Timeout waiting for texture file to be ready")
-        
-        # Verify file can be opened
-        try:
-            Image.open(texture_path).verify()
-        except Exception as e:
-            print(f"Invalid texture file: {e}")
-            texture_path.unlink(missing_ok=True)
-        
-        if upscale_texture(texture_path, upscaled_path):
-            print("Upscale successful!")
-        else:
-            print("Using original texture due to upscaling failure")
+                textured_mesh.visual.material.image = Image.open(upscaled_path)
+                print(f"Successfully loaded upscaled texture from {upscaled_path}")
+            except Exception as e:
+                print(f"Failed to load upscaled texture: {e}")
+                print("Falling back to original texture")
     else:
-        print(f"Critical error: Original texture missing at {texture_path}")
-    
-    # Save textured model with upscaled texture
-    print(f"Saving models to {gen_dir}...")
-    # Export GLB with embedded textures
-    textured_mesh.export(
-        str(gen_dir / "textured.glb"),
-        file_type='glb'
-    )
-    
-    # Export material information
-    if hasattr(textured_mesh.visual, 'material'):
-        # Save material properties with standard values
-        material_props = {
-            'Ka': [0.2, 0.2, 0.2],  # ambient
-            'Kd': [0.8, 0.8, 0.8],  # diffuse
-            'Ks': [0.0, 0.0, 0.0],  # specular
-            'Ns': 1.0,              # specular coefficient
-            'd': 1.0,               # transparency
-            'map_Kd': 'texture.png' # diffuse texture map
-        }
-        # Save as MTL file
-        with open(str(gen_dir / 'material.mtl'), 'w') as f:
-            f.write(f"newmtl material0\n")
-            for key, value in material_props.items():
-                if isinstance(value, list):
-                    value = ' '.join(map(str, value))
-                f.write(f"{key} {value}\n")
-        
-        # Save texture with specific format
-        if hasattr(textured_mesh.visual.material, 'image'):
-            img = textured_mesh.visual.material.image
-            # Check if img is a PIL Image and convert to numpy array if needed
-            if isinstance(img, Image.Image):
-                img = np.array(img)
-            
-            # Convert to RGBA
-            if len(img.shape) == 3 and img.shape[2] == 3:  # If RGB
-                alpha = np.ones((img.shape[0], img.shape[1], 1)) * 255
-                img = np.concatenate([img, alpha], axis=2)
-            elif len(img.shape) == 2:  # If grayscale
-                img = np.stack([img, img, img, np.ones_like(img) * 255], axis=-1)
-            
-            # Convert back to PIL and save
-            Image.fromarray(img.astype(np.uint8)).save(str(gen_dir / 'texture.png'))
-            print("Texture saved with material properties")
-    
-    # Also save an OBJ version of the textured mesh
+        print("Upscaling failed, using original texture")
+
+    # Save final textured mesh with whatever texture was loaded
     textured_mesh.export(
         str(gen_dir / "textured.obj"),
         include_normals=True,
         include_texture=True,
         resolver=None,
-        mtl_name='textured_material.mtl'  # Changed to relative path
+        mtl_name='textured.mtl'
     )
-    print("Saved both GLB and OBJ versions of textured mesh")
-            
-    # Create input image reference
-    copy(TEST_IMAGE, str(gen_dir / Path(TEST_IMAGE).name))
 
-    # Add this before and after upscaling to monitor VRAM
-    print(f"GPU Memory: {torch.cuda.memory_allocated() / 1024**2:.2f}MB")
+    # Clean up any unnecessary files
+    for file in gen_dir.glob('*'):
+        if file.name not in [
+            'base_mesh.obj',
+            'textured.obj',
+            'textured.mtl',
+            'original_texture.png',
+            'upscaled.png'
+        ]:
+            ensure_write_permissions(file)
+            try:
+                file.unlink()
+            except PermissionError as e:
+                print(f"Warning: Could not remove {file}: {e}")
 
 except Exception as e:
     print(f"Texture generation failed with error: {str(e)}")
@@ -281,3 +242,28 @@ except Exception as e:
     print(f"Full traceback:\n{traceback.format_exc()}")
     processed_mesh.export(str(gen_dir / "untextured_mesh.glb"))
     print("Saved untextured mesh as fallback")
+
+# Add this near the start of your script, before any processing
+ensure_model_downloaded()
+
+def ensure_hunyuan_models():
+    """Ensure Hunyuan3D models are downloaded only once"""
+    models_dir = Path('models/hunyuan')
+    models_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Define model paths
+    shape_model = models_dir / 'shape_pipeline'
+    
+    if not shape_model.exists():
+        print("Downloading Hunyuan3D shape model (this may take a while)...")
+        # Only use cache_dir for shape pipeline
+        shape_pipeline = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(
+            'tencent/Hunyuan3D-2',
+            cache_dir=str(shape_model)
+        )
+        print("Shape model downloaded successfully!")
+    else:
+        print("Using existing shape model")
+
+# Add this near the start of your script
+ensure_hunyuan_models()
