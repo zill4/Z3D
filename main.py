@@ -110,7 +110,7 @@ def get_next_number():
     return max(numbers) + 1
 
 # Test image path
-TEST_IMAGE = "./images/Heisei_godzilla.png"
+TEST_IMAGE = "./images/goji_2000.png"
 
 # Create output directory if it doesn't exist
 output_dir = Path('output')
@@ -144,13 +144,13 @@ shape_pipeline = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(
 print("Generating 3D shape...")
 mesh = shape_pipeline(image=TEST_IMAGE)[0]
 
-# Modified mesh processing section
+# Before reduction, print original face count
 print(f"Original mesh faces: {len(mesh.faces)}")
 
 # Apply the same processing as the API server
 processed_mesh = FloaterRemover()(mesh)                # Remove floating artifacts
 processed_mesh = DegenerateFaceRemover()(processed_mesh)  # Remove bad triangles
-processed_mesh = FaceReducer()(processed_mesh, max_facenum=251436)  # Reduce to 40k faces, changed to 218824 (base model size)
+# processed_mesh = FaceReducer()(processed_mesh)  # Remove max_facenum parameter to keep all valid faces
 
 # Additional quality checks
 processed_mesh = processed_mesh.process(validate=True)  # Validate mesh
@@ -220,12 +220,24 @@ try:
         mtl_name='textured.mtl'
     )
 
+    # Save an additional OBJ/MTL pair with original texture
+    textured_mesh.visual.material.image = Image.open(texture_path)  # Load original texture
+    textured_mesh.export(
+        str(gen_dir / "textured_original.obj"),
+        include_normals=True,
+        include_texture=True,
+        resolver=None,
+        mtl_name='textured_original.mtl'
+    )
+
     # Clean up any unnecessary files
     for file in gen_dir.glob('*'):
         if file.name not in [
             'base_mesh.obj',
             'textured.obj',
             'textured.mtl',
+            'textured_original.obj',
+            'textured_original.mtl',
             'original_texture.png',
             'upscaled.png'
         ]:

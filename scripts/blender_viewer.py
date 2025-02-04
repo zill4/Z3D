@@ -66,94 +66,64 @@ def check_blender_version():
     
     return has_legacy_import, has_new_import
 
+def setup_materials(obj, generation_dir):
+    """Ensure materials are properly set up with textures"""
+    for mat in obj.data.materials:
+        mat.use_nodes = True
+        nodes = mat.node_tree.nodes
+        
+        # Clear existing nodes
+        nodes.clear()
+        
+        # Create basic nodes
+        principled = nodes.new('ShaderNodeBsdfPrincipled')
+        output = nodes.new('ShaderNodeOutputMaterial')
+        tex_image = nodes.new('ShaderNodeTexImage')
+        
+        # Link nodes
+        mat.node_tree.links.new(tex_image.outputs[0], principled.inputs[0])  # Base Color
+        mat.node_tree.links.new(principled.outputs[0], output.inputs[0])
+        
+        # Load texture
+        if 'upscaled' in obj.name:
+            tex_path = generation_dir / 'upscaled.png'
+        else:
+            tex_path = generation_dir / 'original_texture.png'
+            
+        if tex_path.exists():
+            tex_image.image = bpy.data.images.load(str(tex_path))
+            print(f"Loaded texture: {tex_path}")
+
 def load_model(generation_dir):
-    """Load model and textures from generation directory"""
-    # Check Blender version and available import methods
-    has_legacy_import, has_new_import = check_blender_version()
+    """Load both original and upscaled versions for comparison"""
+    generation_dir = Path(generation_dir)
     
-    # Convert to absolute path if not already
-    generation_dir = Path(generation_dir).resolve()
-    
-    # Define paths
-    model_path = generation_dir / 'textured.obj'
-    texture_path = generation_dir / 'upscaled.png'
-    if not texture_path.exists():
-        texture_path = generation_dir / 'original_texture.png'
-    
-    print(f"\nChecking paths:")
-    print(f"Generation dir: {generation_dir}")
-    print(f"Model path: {model_path}")
-    print(f"Texture path: {texture_path}")
-    
-    if not model_path.exists():
-        raise FileNotFoundError(f"Model not found at {model_path}")
-    if not texture_path.exists():
-        raise FileNotFoundError(f"Texture not found at {texture_path}")
-    
-    # Import OBJ with appropriate method based on version
-    if has_new_import:
-        print("\nUsing new OBJ importer (Blender 4.0+)...")
+    # Load upscaled version
+    upscaled_path = generation_dir / "textured.obj"
+    if upscaled_path.exists():
         bpy.ops.wm.obj_import(
-            filepath=str(model_path.resolve()),
+            filepath=str(upscaled_path),
             forward_axis='Y',
             up_axis='Z'
         )
-    elif has_legacy_import:
-        print("\nUsing legacy OBJ importer...")
-        bpy.ops.import_scene.obj(
-            filepath=str(model_path.resolve()),
-            use_split_objects=False,
-            use_split_groups=False
+        obj = bpy.context.selected_objects[0]
+        obj.name = 'upscaled'
+        setup_materials(obj, generation_dir)
+        print(f"Loaded upscaled model from {upscaled_path}")
+    
+    # Load original version offset to the side
+    original_path = generation_dir / "textured_original.obj"
+    if original_path.exists():
+        bpy.ops.wm.obj_import(
+            filepath=str(original_path),
+            forward_axis='Y',
+            up_axis='Z'
         )
+        # Move the second model to the side
+        bpy.context.selected_objects[0].location.x += 3
+        print(f"Loaded original model from {original_path}")
     else:
-        raise RuntimeError("No OBJ import method available!")
-    
-    if not bpy.context.selected_objects:
-        raise RuntimeError("No objects were imported")
-    
-    # Get the imported object
-    obj = bpy.context.selected_objects[0]
-    print(f"Loaded object: {obj.name}")
-    
-    # Create new material
-    mat = bpy.data.materials.new(name="TexturedMaterial")
-    mat.use_nodes = True
-    nodes = mat.node_tree.nodes
-    
-    # Clear default nodes
-    nodes.clear()
-    
-    # Create texture node
-    tex_image = nodes.new('ShaderNodeTexImage')
-    tex_image.image = bpy.data.images.load(str(texture_path.resolve()))
-    print(f"Loaded texture: {texture_path.name}")
-    
-    # Create principled BSDF
-    principled = nodes.new('ShaderNodeBsdfPrincipled')
-    
-    # Create output node
-    output = nodes.new('ShaderNodeOutputMaterial')
-    
-    # Link nodes
-    links = mat.node_tree.links
-    links.new(tex_image.outputs['Color'], principled.inputs['Base Color'])
-    links.new(principled.outputs['BSDF'], output.inputs['Surface'])
-    
-    # Assign material to object
-    if obj.data.materials:
-        obj.data.materials[0] = mat
-    else:
-        obj.data.materials.append(mat)
-    
-    # Center and scale object
-    bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY', center='BOUNDS')
-    obj.location = (0, 0, 1)
-    
-    # Select object
-    obj.select_set(True)
-    bpy.context.view_layer.objects.active = obj
-    
-    return obj
+        print(f"Warning: Original model not found at {original_path}")
 
 def main():
     # Get script directory
