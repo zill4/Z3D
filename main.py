@@ -110,7 +110,7 @@ def get_next_number():
     return max(numbers) + 1
 
 # Test image path
-TEST_IMAGE = "./images/goji_2000.png"
+TEST_IMAGE = "./images/cyber_kunoichi.png"
 
 # Create output directory if it doesn't exist
 output_dir = Path('output')
