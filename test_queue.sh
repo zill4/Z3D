@@ -6,10 +6,10 @@ RABBITMQ_PORT=${RABBITMQ_PORT:-"15672"}
 RABBITMQ_USER=${RABBITMQ_USER:-"guest"}
 RABBITMQ_PASS=${RABBITMQ_PASS:-"guest"}
 QUEUE_NAME="image_processing"
-TEST_IMAGE=${1:-"uploads/test.png"}
+TEST_IMAGE=${1:-"uploads/good.jpg"}
 
 # Generate a unique job ID
-JOB_ID=$(uuidgen | tr -d '-')
+JOB_ID=1234567890
 echo "Generated Job ID: $JOB_ID"
 
 # Create uploads directory if it doesn't exist

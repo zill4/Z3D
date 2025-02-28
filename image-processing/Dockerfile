@@ -22,31 +22,35 @@ RUN apt-get update && apt-get install -y \
 # Set working directory
 WORKDIR /app
 
-# Install Python packages first (excluding hy3dgen)
-COPY requirements.txt .
-RUN pip3 install --no-cache-dir -r requirements.txt
+# Install core build dependencies first
+RUN pip3 install --no-cache-dir ninja setuptools wheel pybind11
 
-# Explicitly install torch extension dependencies
-RUN pip3 install --no-cache-dir ninja setuptools wheel
+# Copy hy3dgen files first
+COPY hy3dgen/ ./hy3dgen/
+COPY setup.py .
 
-# Copy the application code
-COPY . .
+# Set CUDA paths and architecture flags
+ENV PATH="/usr/local/cuda/bin:${PATH}" \
+    TORCH_CUDA_ARCH_LIST="7.0;7.5;8.0;8.6;9.0"
 
-# Verify CUDA setup
-RUN ls -la /usr/local/cuda/bin/nvcc || echo "nvcc not found"
-RUN which nvcc || echo "nvcc not in PATH"
-RUN echo "CUDA_HOME=$CUDA_HOME"
+# Install torch and CUDA dependencies first
+RUN pip3 install --no-cache-dir torch torchvision
 
-# Make sure nvcc is in PATH
-ENV PATH="/usr/local/cuda/bin:${PATH}"
-
-# Install the custom components of hy3dgen as per the README
-RUN cd /app/hy3dgen/texgen/custom_rasterizer && \
+# Install hy3dgen and its custom components
+RUN pip3 install -e . && \
+    cd /app/hy3dgen/texgen/custom_rasterizer && \
     python3 setup.py install && \
     cd /app && \
     cd /app/hy3dgen/texgen/differentiable_renderer && \
     python3 setup.py install && \
     cd /app
+
+# Now install remaining requirements for image_processing.py
+COPY requirements.txt .
+RUN pip3 install --no-cache-dir -r requirements.txt
+
+# Copy the rest of the application code
+COPY . .
 
 # Create necessary directories
 RUN mkdir -p uploads prepped models

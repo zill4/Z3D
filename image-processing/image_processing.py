@@ -34,17 +34,30 @@ def ensure_dirs():
 def remove_background(input_path):
     """Remove image background and save the result"""
     logger.info(f"Removing background from {input_path}")
+    
+    # Read the input image
     with open(input_path, "rb") as input_file:
         input_content = input_file.read()
     
-    # Remove background with white background
-    output_content = remove(input_content, session=bg_remover_session, bgcolor=(255, 255, 255, 0))
+    # Configure rembg to be less aggressive
+    output_content = remove(
+        input_content,
+        session=bg_remover_session,
+        bgcolor=(255, 255, 255, 0),
+        alpha_matting=True,
+        alpha_matting_foreground_threshold=240,
+        alpha_matting_background_threshold=10,
+        alpha_matting_erode_size=10
+    )
     
-    prepped_path = input_path.replace(".png", "_prepped.png")
+    # Generate output path properly preserving the job ID
+    input_path = Path(input_path)
+    prepped_path = input_path.parent / f"{input_path.stem}_prepped{input_path.suffix}"
+    
     with open(prepped_path, "wb") as output_file:
         output_file.write(output_content)
     
-    return prepped_path
+    return str(prepped_path)
 
 def load_pipelines():
     """Initialize and load Hunyuan3D pipelines"""

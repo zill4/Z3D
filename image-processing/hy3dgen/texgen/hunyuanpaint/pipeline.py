@@ -45,7 +45,6 @@ from diffusers.schedulers import KarrasDiffusionSchedulers
 from diffusers.utils import deprecate
 from einops import rearrange
 from transformers import CLIPImageProcessor, CLIPTextModel, CLIPTokenizer
-import os
 
 from .unet.modules import UNet2p5DConditionModel
 
@@ -75,9 +74,6 @@ class HunyuanPaintPipeline(StableDiffusionPipeline):
         feature_extractor: CLIPImageProcessor,
         safety_checker=None,
         use_torch_compile=False,
-        view_size: int = 512,
-        texture_size: int = 1024,
-        enable_intermediate_saves: bool = False,
     ):
         DiffusionPipeline.__init__(self)
 
@@ -93,18 +89,6 @@ class HunyuanPaintPipeline(StableDiffusionPipeline):
         )
         self.vae_scale_factor = 2 ** (len(self.vae.config.block_out_channels) - 1)
         self.image_processor = VaeImageProcessor(vae_scale_factor=self.vae_scale_factor)
-        self.config.view_size = view_size
-        self.config.texture_size = texture_size
-        self.config.enable_intermediate_saves = enable_intermediate_saves
-        self.intermediate_dir = None
-
-    def set_intermediate_dir(self, dir_path):
-        self.intermediate_dir = dir_path
-
-    def save_intermediate(self, name, tensor):
-        if self.config.enable_intermediate_saves and self.intermediate_dir:
-            path = os.path.join(self.intermediate_dir, f"{name}.png")
-            Image.fromarray((tensor.cpu().numpy() * 255).astype(np.uint8)).save(path)
 
     @torch.no_grad()
     def encode_images(self, images):
