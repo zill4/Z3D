@@ -5,9 +5,8 @@ import azure.functions as func
 from azure.storage.blob import BlobServiceClient
 from azure.mgmt.containerinstance import ContainerInstanceManagementClient
 from azure.mgmt.containerinstance.models import (
-    ContainerGroup, Container, ContainerGroupNetworkProtocol,
-    ResourceRequirements, ResourceRequests, EnvironmentVariable,
-    ContainerGroupRestartPolicy, GpuResource
+    ContainerGroup, Container, ResourceRequirements, 
+    ResourceRequests, EnvironmentVariable, GpuResource
 )
 from azure.identity import DefaultAzureCredential
 
@@ -35,86 +34,135 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     connection_string = os.environ["AzureWebJobsStorage"]
     blob_service_client = BlobServiceClient.from_connection_string(connection_string)
     
-    # Create status container if it doesn't exist
+    # Initialize status
     status_container = blob_service_client.get_container_client("status")
     try:
         status_container.create_container()
     except:
-        # Container already exists
         pass
+        
+    # Upload image to blob storage
+    uploads_container = blob_service_client.get_container_client("uploads")
+    try:
+        uploads_container.create_container()
+    except:
+        pass
+        
+    # Upload image from URL to blob storage
+    from urllib.request import urlopen
+    image_data = urlopen(image_url).read()
+    uploads_container.upload_blob(f"{job_id}.png", image_data, overwrite=True)
     
     # Initialize status
     status_blob = status_container.get_blob_client(f"{job_id}/status.json")
     status_data = {
         "job_id": job_id,
-        "status": "initializing",
+        "status": "queued",
         "progress": 0,
-        "message": "Starting job",
+        "message": "Job queued",
         "timestamp": datetime.datetime.utcnow().isoformat()
     }
     status_blob.upload_blob(json.dumps(status_data), overwrite=True)
     
-    # Download image from URL and upload to blob storage
-    uploads_container = blob_service_client.get_container_client("uploads")
+    # Check if there's an available container or create one
+    queue_container = blob_service_client.get_container_client("queue")
     try:
-        uploads_container.create_container()
+        queue_container.create_container()
     except:
-        # Container already exists
         pass
     
-    # Create the ACI with GPU
+    # Add job to queue
+    queue_blob = queue_container.get_blob_client("job_queue.json")
+    try:
+        queue_data = json.loads(queue_blob.download_blob().readall())
+        queue_data["jobs"].append(job_id)
+    except:
+        queue_data = {"jobs": [job_id]}
+    
+    queue_blob.upload_blob(json.dumps(queue_data), overwrite=True)
+    
+    # Check if processor container exists
     container_client = ContainerInstanceManagementClient(
         credential=DefaultAzureCredential(),
         subscription_id=os.environ["SUBSCRIPTION_ID"]
     )
     
-    # Start the container instance with our image
-    container_group_name = f"z3d-job-{job_id}"
+    container_group_name = "z3d-processor"
     resource_group = os.environ["RESOURCE_GROUP"]
     
-    # Container configuration
-    container = Container(
-        name="image-processor",
-        image=os.environ["CONTAINER_IMAGE"],
-        resources=ResourceRequirements(
-            requests=ResourceRequests(
-                memory_in_gb=8.0,
-                cpu=2.0,
-                gpu=GpuResource(count=1, sku="K80")
+    try:
+        container_group = container_client.container_groups.get(
+            resource_group, container_group_name
+        )
+        
+        # Container exists - check its state
+        if container_group.instance_view.state == "Running":
+            # Container is already running, job will be picked up from queue
+            logging.info(f"Container {container_group_name} is already running")
+        else:
+            # Container exists but is stopped - start it
+            logging.info(f"Container {container_group_name} exists but is stopped - starting it")
+            container_client.container_groups.begin_restart(
+                resource_group, container_group_name
             )
-        ),
-        environment_variables=[
-            EnvironmentVariable(name="JOB_ID", value=job_id),
-            EnvironmentVariable(name="AZURE_STORAGE_CONNECTION_STRING", 
-                               value=connection_string),
-            EnvironmentVariable(name="UPLOADS_CONTAINER", value="uploads"),
-            EnvironmentVariable(name="PREPPED_CONTAINER", value="prepped"),
-            EnvironmentVariable(name="MODELS_CONTAINER", value="models"),
-            EnvironmentVariable(name="STATUS_CONTAINER", value="status")
-        ]
-    )
-    
-    # Create container group
-    container_group = ContainerGroup(
-        location=os.environ["LOCATION"],
-        containers=[container],
-        os_type="Linux",
-        restart_policy="Never"
-    )
-    
-    # Deploy the container
-    container_client.container_groups.begin_create_or_update(
-        resource_group,
-        container_group_name,
-        container_group
-    )
-    
-    return func.HttpResponse(
-        json.dumps({
-            "job_id": job_id,
-            "status": "started",
-            "message": "Processing started. Monitor status at container level.",
-            "status_url": f"https://{os.environ['FUNCTION_APP_NAME']}.azurewebsites.net/api/GetJobStatus?job_id={job_id}"
-        }),
-        mimetype="application/json"
-    ) 
+            
+        return func.HttpResponse(
+            json.dumps({
+                "job_id": job_id,
+                "status": "queued",
+                "message": "Job added to queue. Container will process it.",
+                "status_url": f"https://{os.environ['FUNCTION_APP_NAME']}.azurewebsites.net/api/GetJobStatus?job_id={job_id}"
+            }),
+            mimetype="application/json"
+        )
+            
+    except Exception as e:
+        logging.info(f"Container {container_group_name} doesn't exist - creating it")
+        # Container doesn't exist, create it
+        # Create the ACI with GPU
+        container = Container(
+            name="image-processor",
+            image=os.environ["CONTAINER_IMAGE"],
+            resources=ResourceRequirements(
+                requests=ResourceRequests(
+                    memory_in_gb=32.0,  # More memory for model loading
+                    cpu=8.0,            # More CPU cores
+                    gpu=GpuResource(count=1, sku="V100")  # Upgraded GPU
+                )
+            ),
+            environment_variables=[
+                EnvironmentVariable(name="AZURE_STORAGE_CONNECTION_STRING", 
+                                   value=connection_string),
+                EnvironmentVariable(name="UPLOADS_CONTAINER", value="uploads"),
+                EnvironmentVariable(name="PREPPED_CONTAINER", value="prepped"),
+                EnvironmentVariable(name="MODELS_CONTAINER", value="models"),
+                EnvironmentVariable(name="STATUS_CONTAINER", value="status"),
+                EnvironmentVariable(name="QUEUE_CONTAINER", value="queue"),
+                EnvironmentVariable(name="IDLE_TIMEOUT_MINUTES", value="30")  # Keep container for 30 mins
+            ]
+        )
+        
+        # Create container group
+        container_group = ContainerGroup(
+            location=os.environ["LOCATION"],
+            containers=[container],
+            os_type="Linux",
+            restart_policy="Never"
+        )
+        
+        # Deploy the container
+        container_client.container_groups.begin_create_or_update(
+            resource_group,
+            container_group_name,
+            container_group
+        )
+        
+        return func.HttpResponse(
+            json.dumps({
+                "job_id": job_id,
+                "status": "queued",
+                "message": "Job queued. Starting processor.",
+                "status_url": f"https://{os.environ['FUNCTION_APP_NAME']}.azurewebsites.net/api/GetJobStatus?job_id={job_id}"
+            }),
+            mimetype="application/json"
+        ) 

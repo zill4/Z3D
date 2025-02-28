@@ -3,9 +3,10 @@ import json
 import uuid
 import logging
 import time
+import threading
 from pathlib import Path
 import traceback
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # Azure packages
 from azure.storage.blob import BlobServiceClient
@@ -31,6 +32,7 @@ logger = logging.getLogger("hunyuan3d-service")
 # Configuration
 MAX_FACE_COUNT = 2000  # Target for optimization
 MODEL_CACHE_DIR = Path('models/hunyuan')
+IDLE_TIMEOUT_MINUTES = int(os.getenv("IDLE_TIMEOUT_MINUTES", "30"))
 
 # Initialize background removal session
 bg_remover_session = new_session()
@@ -43,10 +45,17 @@ uploads_container = os.getenv("UPLOADS_CONTAINER", "uploads")
 prepped_container = os.getenv("PREPPED_CONTAINER", "prepped")
 models_container = os.getenv("MODELS_CONTAINER", "models")
 status_container = os.getenv("STATUS_CONTAINER", "status")
+queue_container = os.getenv("QUEUE_CONTAINER", "queue")
+
+# Global pipelines (load once, reuse for all jobs)
+shape_pipeline = None
+paint_pipeline = None
+last_job_time = datetime.now()
+shutdown_timer = None
 
 def ensure_containers():
     """Ensure all necessary blob containers exist"""
-    for container_name in [uploads_container, prepped_container, models_container, status_container]:
+    for container_name in [uploads_container, prepped_container, models_container, status_container, queue_container]:
         try:
             blob_service_client.create_container(container_name)
             logger.info(f"Created container: {container_name}")
@@ -54,7 +63,7 @@ def ensure_containers():
             logger.info(f"Container already exists: {container_name}")
 
 def update_job_status(job_id, status, progress=None, message=None, error=None):
-    """Update job status in Azure Blob Storage"""
+    """Update job status in Azure Blob Storage and trigger callback"""
     status_blob_name = f"{job_id}/status.json"
     status_data = {
         "job_id": job_id,
@@ -74,6 +83,28 @@ def update_job_status(job_id, status, progress=None, message=None, error=None):
     )
     
     logger.info(f"Updated job {job_id} status to {status} - Progress: {progress}%")
+    
+    # Send webhook callback to backend
+    callback_url = os.getenv("CALLBACK_URL")
+    if callback_url:
+        try:
+            import requests
+            requests.post(
+                callback_url,
+                json={
+                    "job_id": job_id,
+                    "status": status,
+                    "progress": progress,
+                    "message": message,
+                    "error": error,
+                    "timestamp": datetime.utcnow().isoformat()
+                },
+                timeout=5
+            )
+            logger.info(f"Sent callback for job {job_id}")
+        except Exception as e:
+            logger.error(f"Callback failed: {str(e)}")
+    
     return status_data
 
 def download_image(job_id):
@@ -109,9 +140,9 @@ def remove_background(job_id, input_path):
         session=bg_remover_session,
         bgcolor=(255, 255, 255, 0),
         alpha_matting=True,
-        alpha_matting_foreground_threshold=200,  # Less aggressive (was 240)
-        alpha_matting_background_threshold=20,   # More inclusive (was 10)
-        alpha_matting_erode_size=5               # Less erosion (was 10)
+        alpha_matting_foreground_threshold=180,  # Even less aggressive
+        alpha_matting_background_threshold=20,
+        alpha_matting_erode_size=5
     )
     
     # Generate output path
@@ -137,6 +168,12 @@ def remove_background(job_id, input_path):
 
 def load_pipelines():
     """Initialize and load Hunyuan3D pipelines"""
+    global shape_pipeline, paint_pipeline
+    
+    if shape_pipeline is not None and paint_pipeline is not None:
+        logger.info("Reusing existing pipelines")
+        return shape_pipeline, paint_pipeline
+    
     logger.info("Loading Hunyuan3D pipelines")
     
     # Check GPU availability
@@ -160,6 +197,8 @@ def load_pipelines():
 
 def generate_3d_model(job_id, image_path):
     """Generate 3D model from image using Hunyuan3D"""
+    global last_job_time
+    
     logger.info(f"Generating 3D model from {image_path}")
     update_job_status(job_id, "processing", 40, "Initializing 3D generation")
     
@@ -236,6 +275,9 @@ def generate_3d_model(job_id, image_path):
             }
         )
         
+        # Update last job time
+        last_job_time = datetime.now()
+        
         logger.info(f"Completed 3D model generation for job {job_id}")
         return textured_path
         
@@ -277,6 +319,8 @@ def upload_model_files(job_id, output_dir, main_file):
 
 def process_job(job_id):
     """Process a single job with the given ID"""
+    global last_job_time
+    
     try:
         # Update status to started
         update_job_status(job_id, "started", 0, "Job started")
@@ -289,6 +333,9 @@ def process_job(job_id):
         
         # Step 3: Generate 3D model
         model_path = generate_3d_model(job_id, prepped_path)
+        
+        # Update last job time
+        last_job_time = datetime.now()
         
         return {
             "status": "success",
@@ -307,24 +354,104 @@ def process_job(job_id):
             "error": str(e)
         }
 
+def check_queue():
+    """Check for new jobs in the queue"""
+    global shutdown_timer
+    
+    # Reset shutdown timer
+    if shutdown_timer:
+        shutdown_timer.cancel()
+    
+    # Get the queue blob
+    queue_container_client = blob_service_client.get_container_client(queue_container)
+    queue_blob = queue_container_client.get_blob_client("job_queue.json")
+    
+    try:
+        # Get queued jobs
+        queue_data = json.loads(queue_blob.download_blob().readall())
+        jobs = queue_data.get("jobs", [])
+        
+        if jobs:
+            # Get the next job
+            job_id = jobs.pop(0)
+            
+            # Update the queue
+            queue_container_client.upload_blob(
+                name="job_queue.json",
+                data=json.dumps({"jobs": jobs}),
+                overwrite=True
+            )
+            
+            # Process the job
+            logger.info(f"Processing job {job_id} from queue")
+            process_job(job_id)
+            
+            # Check for more jobs
+            check_queue()
+        else:
+            # No jobs in queue, start shutdown timer
+            logger.info(f"No jobs in queue. Will check again in 30 seconds.")
+            time_since_last_job = (datetime.now() - last_job_time).total_seconds() / 60
+            
+            if time_since_last_job > IDLE_TIMEOUT_MINUTES:
+                logger.info(f"No activity for {IDLE_TIMEOUT_MINUTES} minutes. Shutting down container.")
+                return
+            
+            # Check again in 30 seconds
+            shutdown_timer = threading.Timer(30, check_queue)
+            shutdown_timer.daemon = True
+            shutdown_timer.start()
+    
+    except Exception as e:
+        logger.error(f"Error checking queue: {str(e)}")
+        
+        # Check again in 30 seconds
+        shutdown_timer = threading.Timer(30, check_queue)
+        shutdown_timer.daemon = True
+        shutdown_timer.start()
+
 def main():
     """Main entry point for the service"""
+    global last_job_time
+    
     logger.info("Starting Hunyuan3D Image Processing Service for Azure")
     
     # Ensure Azure containers exist
     ensure_containers()
     
-    # Get job ID from environment or command line
-    job_id = os.getenv("JOB_ID")
+    # Initialize last job time
+    last_job_time = datetime.now()
     
-    if job_id:
-        logger.info(f"Processing job {job_id}")
-        result = process_job(job_id)
-        logger.info(f"Job {job_id} completed with status: {result['status']}")
-    else:
-        logger.error("No JOB_ID provided in environment variables")
+    # Load pipelines (one time)
+    load_pipelines()
+    
+    # Start queue checker
+    check_queue()
+    
+    # Keep the main thread alive
+    try:
+        while True:
+            time.sleep(60)
+            
+            # Check if we should shut down
+            time_since_last_job = (datetime.now() - last_job_time).total_seconds() / 60
+            if time_since_last_job > IDLE_TIMEOUT_MINUTES:
+                logger.info(f"No activity for {IDLE_TIMEOUT_MINUTES} minutes. Shutting down container.")
+                break
+    except KeyboardInterrupt:
+        logger.info("Shutting down...")
     
     return 0
 
 if __name__ == "__main__":
     exit(main())
+
+@app.route('/health')
+def health():
+    """Health check endpoint"""
+    return jsonify({
+        "status": "healthy",
+        "gpu": torch.cuda.is_available(),
+        "memory_usage": psutil.virtual_memory().percent,
+        "uptime": time.time() - start_time
+    })
