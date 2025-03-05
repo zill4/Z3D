@@ -26,6 +26,20 @@ bg_remover_session = new_session()
 MAX_FACE_COUNT = 2000  # Target for optimization
 MODEL_CACHE_DIR = Path('models/hunyuan')
 
+# Update container names to match Azure
+CONTAINERS = {
+    'uploads': 'images',  # This matches where images are being uploaded
+    'prepped': 'prepped',
+    'models': 'models'
+}
+
+# Update directory creation
+for dir_path in CONTAINERS.values():
+    os.makedirs(dir_path, exist_ok=True)
+
+# Update queue name to match Azure
+QUEUE_NAME = "processing-queue"
+
 def ensure_dirs():
     """Ensure all necessary directories exist"""
     for dir_path in ['uploads', 'prepped', 'models', MODEL_CACHE_DIR]:
@@ -240,13 +254,13 @@ def main():
         try:
             connection = pika.BlockingConnection(parameters)
             channel = connection.channel()
-            channel.queue_declare(queue="image_processing", durable=True)
+            channel.queue_declare(queue=QUEUE_NAME, durable=True)
             
             # Set prefetch to 1 to ensure we only process one job at a time
             channel.basic_qos(prefetch_count=1)
             
             # Register the callback
-            channel.basic_consume(queue="image_processing", on_message_callback=callback)
+            channel.basic_consume(queue=QUEUE_NAME, on_message_callback=callback)
             
             logger.info("Service started. Waiting for jobs...")
             channel.start_consuming()
