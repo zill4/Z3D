@@ -1,0 +1,155 @@
+Project Overview
+This project involves deploying a cloud-based system on Azure to convert user-uploaded images into 3D models. The system must:
+
+Handle image uploads via a backend that triggers a cloud function.
+Spin up a GPU-enabled Docker container (requiring at least 26GB VRAM) to process the image if not already running.
+Process images by removing backgrounds and running the Hunyuan3D 2 model to generate 3D models.
+Provide job status updates through a separate function.
+Be cost-sensitive by shutting down resources when idle.
+Support high traffic using a queue system integrated with Azure.
+As an expert in system design and DevOps, I’ve architected a solution using Azure Kubernetes Service (AKS) with GPU-enabled nodes, Azure Functions, and Azure Queue Storage, leveraging KEDA and Cluster Autoscaler for scalability and cost optimization.
+
+System Architecture
+Components
+Azure Function (Job Submission)
+Purpose: Entry point triggered by the backend to initiate image-to-3D conversion.
+Trigger: HTTP request from the backend with image details.
+Actions:
+Store the uploaded image in Azure Blob Storage (if not already stored).
+Create a job record in Azure Table Storage with status "pending."
+Add a job message to Azure Queue Storage with job ID and image location.
+Azure Kubernetes Service (AKS) with GPU Nodes
+Purpose: Manages Docker containers that process images into 3D models.
+Configuration:
+Node Pool: Uses GPU-enabled VMs (e.g., Standard_NC6s_v4 with one NVIDIA A100 GPU offering 80GB VRAM, exceeding the 26GB minimum requirement).
+NVIDIA Device Plugin: Installed to enable GPU access for containers.
+Deployment: Runs the processing container as a Kubernetes deployment.
+Container Responsibilities:
+Dequeue job messages from Azure Queue Storage.
+Retrieve images from Azure Blob Storage.
+Remove image backgrounds (e.g., using rembg or similar).
+Run the Hunyuan3D 2 model on the transparent image to generate a 3D model.
+Store the 3D model in Azure Blob Storage.
+Update job status in Azure Table Storage to "completed" with the result location.
+Scaling:
+KEDA (Kubernetes Event-driven Autoscaling): Scales the number of container pods based on the number of messages in Azure Queue Storage, including scaling to zero when idle.
+Cluster Autoscaler: Scales the AKS node pool based on resource demands, allowing it to scale to zero nodes when no pods are running.
+Azure Function (Status Check)
+Purpose: Provides job status updates to users or the backend.
+Trigger: HTTP request with a job ID.
+Actions:
+Query Azure Table Storage for the job’s current status and result (if available).
+Return the status and 3D model location (if completed).
+Supporting Azure Services
+Azure Blob Storage: Stores input images and output 3D models.
+Azure Queue Storage: Manages the job queue for processing tasks.
+Azure Table Storage: Tracks job statuses (e.g., "pending," "processing," "completed").
+Development Steps
+Step 1: Set Up Azure Resources
+Tasks:
+Create an Azure Storage Account:
+Configure Blob Storage for images and 3D models.
+Set up Table Storage for job status tracking.
+Establish Queue Storage for job queuing.
+Provision an AKS cluster:
+Use a GPU-enabled node pool with Standard_NC6s_v4 VMs (1x A100 GPU, 80GB VRAM).
+Enable Cluster Autoscaler with a minimum of 0 nodes and a maximum based on expected traffic (e.g., 10).
+Install the NVIDIA device plugin on AKS to enable GPU support.
+Progress Tracking:
+ Storage Account created and configured.
+ AKS cluster provisioned with GPU node pool.
+ NVIDIA device plugin installed.
+Step 2: Develop the Processing Container
+Tasks:
+Create a Dockerfile with:
+Base image compatible with NVIDIA GPUs (e.g., nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu20.04).
+Install dependencies: Python, PyTorch or TensorFlow (GPU-enabled), rembg, Hunyuan3D 2 model libraries/weights.
+Copy job processing script into the container.
+Implement processing logic in Python:
+Connect to Azure Queue Storage using Azure SDK.
+Dequeue job messages and parse job ID/image location.
+Retrieve image from Blob Storage.
+Remove background using rembg or equivalent.
+Process transparent image with the Hunyuan3D 2 model.
+Save 3D model to Blob Storage.
+Update job status in Table Storage.
+Ensure GPU utilization with proper configuration (e.g., set CUDA_VISIBLE_DEVICES).
+Progress Tracking:
+ Dockerfile created and builds successfully.
+ Processing script implemented and tested locally with GPU.
+ Container connects to Azure services and processes a test job.
+Step 3: Deploy the Container to AKS
+Tasks:
+Build and push the container image to Azure Container Registry (ACR).
+Create a Kubernetes deployment YAML:
+Specify resource requests: nvidia.com/gpu: 1.
+Configure environment variables or secrets for Azure service access.
+Apply the deployment to AKS using kubectl.
+Progress Tracking:
+ Container image built and pushed to ACR.
+ Deployment YAML created and applied.
+ Pod runs successfully in AKS with GPU access.
+Step 4: Set Up KEDA for Autoscaling
+Tasks:
+Install KEDA in the AKS cluster via Helm or YAML manifests.
+Create a ScaledObject resource:
+Target the processing deployment.
+Scale based on Azure Queue Storage message count (e.g., 1 pod per 5 messages, min 0, max 10).
+Test scaling by adding/removing messages to the queue.
+Progress Tracking:
+ KEDA installed in AKS.
+ ScaledObject configured and applied.
+ Scaling behavior verified with test jobs.
+Step 5: Configure Cluster Autoscaler
+Tasks:
+Enable Cluster Autoscaler on the AKS node pool via Azure CLI or portal.
+Set minimum nodes to 0 and maximum to a reasonable limit (e.g., 10).
+Verify node scaling by simulating pod creation and deletion.
+Progress Tracking:
+ Cluster Autoscaler enabled and configured.
+ Node pool scales to 0 when idle and up when jobs are queued.
+Step 6: Develop the Azure Functions
+Tasks:
+Create an Azure Function App in the Azure portal or CLI.
+Job Submission Function:
+Language: Python (or preferred language).
+Trigger: HTTP.
+Logic: Store image in Blob Storage, create Table Storage record, enqueue job in Queue Storage.
+Status Check Function:
+Language: Python (or preferred language).
+Trigger: HTTP with job ID parameter.
+Logic: Query Table Storage and return status/result.
+Deploy functions to the Function App.
+Progress Tracking:
+ Function App created.
+ Job Submission Function implemented and deployed.
+ Status Check Function implemented and deployed.
+Step 7: Implement Security
+Tasks:
+Assign Managed Identities to the Function App and AKS cluster.
+Grant permissions:
+Function App: Access to Blob Storage, Table Storage, Queue Storage.
+AKS: Access to Blob Storage, Table Storage, Queue Storage via pod identity.
+Configure storage access controls (e.g., RBAC or SAS tokens).
+Progress Tracking:
+ Managed Identities assigned.
+ Permissions configured and tested.
+Step 8: Test the System
+Tasks:
+Upload test images via the Job Submission Function.
+Verify end-to-end flow: image stored, job queued, processed, status updated, result retrieved.
+Test scaling with multiple simultaneous uploads.
+Confirm cost-efficiency by checking node/pod shutdown when idle.
+Progress Tracking:
+ Single job tested successfully.
+ Multi-job scaling tested.
+ Idle shutdown verified.
+Step 9: Monitor and Optimize
+Tasks:
+Set up Azure Monitor for AKS, Functions, and storage services.
+Add logging in the container and Functions for debugging.
+Optimize container startup time and resource usage if needed.
+Progress Tracking:
+ Monitoring configured.
+ Logging implemented.
+ Performance optimizations applied (if necessary).
