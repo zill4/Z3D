@@ -1,4 +1,3 @@
-import pika
 import json
 import os
 from rembg import remove
@@ -8,6 +7,10 @@ from pathlib import Path
 from PIL import Image
 import traceback
 import logging
+from azure.storage.queue import QueueClient
+from azure.storage.blob import BlobServiceClient
+from azure.data.tables import TableClient
+from azure.identity import DefaultAzureCredential
 from hy3dgen.shapegen import Hunyuan3DDiTFlowMatchingPipeline, FaceReducer, FloaterRemover, DegenerateFaceRemover
 from hy3dgen.texgen import Hunyuan3DPaintPipeline
 from rembg import new_session
@@ -19,31 +22,73 @@ logging.basicConfig(
 )
 logger = logging.getLogger("hunyuan3d-service")
 
-# Initialize background removal session
-bg_remover_session = new_session()
-
 # Configuration
-MAX_FACE_COUNT = 2000  # Target for optimization
+MAX_FACE_COUNT = 2000
 MODEL_CACHE_DIR = Path('models/hunyuan')
 
-# Update container names to match Azure
+# Azure Storage settings
+STORAGE_ACCOUNT = os.getenv("STORAGE_ACCOUNT_NAME", "z3dstorage")
+QUEUE_NAME = "processing-queue"
+
+# Container names
 CONTAINERS = {
-    'uploads': 'images',  # This matches where images are being uploaded
+    'uploads': 'images',
     'prepped': 'prepped',
     'models': 'models'
 }
 
-# Update directory creation
-for dir_path in CONTAINERS.values():
-    os.makedirs(dir_path, exist_ok=True)
+# Initialize Azure clients with managed identity
+credential = DefaultAzureCredential()
 
-# Update queue name to match Azure
-QUEUE_NAME = "processing-queue"
+def get_blob_service_client():
+    return BlobServiceClient(
+        account_url=f"https://{STORAGE_ACCOUNT}.blob.core.windows.net",
+        credential=credential
+    )
 
-def ensure_dirs():
-    """Ensure all necessary directories exist"""
-    for dir_path in ['uploads', 'prepped', 'models', MODEL_CACHE_DIR]:
-        Path(dir_path).mkdir(parents=True, exist_ok=True)
+def get_table_client():
+    return TableClient(
+        endpoint=f"https://{STORAGE_ACCOUNT}.table.core.windows.net",
+        table_name="jobstatus",
+        credential=credential
+    )
+
+def get_queue_client():
+    return QueueClient(
+        account_url=f"https://{STORAGE_ACCOUNT}.queue.core.windows.net",
+        queue_name=QUEUE_NAME,
+        credential=credential
+    )
+
+def update_job_status(job_id, status, error=None):
+    """Update job status in Table Storage"""
+    table_client = get_table_client()
+    entity = {
+        'PartitionKey': 'jobs',
+        'RowKey': job_id,
+        'status': status
+    }
+    if error:
+        entity['error'] = error
+    table_client.update_entity(entity)
+
+def download_blob(container_name, blob_name, local_path):
+    """Download blob from Azure Storage"""
+    blob_service_client = get_blob_service_client()
+    blob_client = blob_service_client.get_blob_client(container=container_name, blob=blob_name)
+    
+    os.makedirs(os.path.dirname(local_path), exist_ok=True)
+    with open(local_path, "wb") as file:
+        data = blob_client.download_blob()
+        file.write(data.readall())
+
+def upload_blob(container_name, blob_name, local_path):
+    """Upload blob to Azure Storage"""
+    blob_service_client = get_blob_service_client()
+    blob_client = blob_service_client.get_blob_client(container=container_name, blob=blob_name)
+    
+    with open(local_path, "rb") as file:
+        blob_client.upload_blob(file, overwrite=True)
 
 def remove_background(input_path):
     """Remove image background and save the result"""
@@ -168,116 +213,84 @@ def generate_3d_model(image_path, output_dir):
             logger.error("Failed to save fallback mesh")
             return None
 
-def process_job(job_id):
-    """Process a single job with the given ID"""
+def process_job(job_data):
+    """Process a single job"""
     try:
-        # Define paths
-        input_path = f"uploads/{job_id}.png"
-        output_dir = f"models/{job_id}"
+        job_id = job_data["job_id"]
+        image_url = job_data["image_url"]
         
-        # Step 1: Remove background
-        prepped_path = remove_background(input_path)
+        # Extract blob path from URL
+        blob_path = image_url.split(f"{CONTAINERS['uploads']}/")[1]
+        local_input_path = f"local_storage/{CONTAINERS['uploads']}/{blob_path}"
         
-        # Step 2: Generate 3D model
-        model_path = generate_3d_model(prepped_path, output_dir)
+        # Download input image
+        download_blob(CONTAINERS['uploads'], blob_path, local_input_path)
         
-        # Return the result info
-        return {
-            "status": "success",
-            "job_id": job_id,
-            "model_path": model_path,
-            "prepped_path": prepped_path
-        }
-    
+        # Update status
+        update_job_status(job_id, "processing")
+        
+        # Process image (your existing processing code)
+        prepped_path = remove_background(local_input_path)
+        model_path = generate_3d_model(prepped_path, f"local_storage/{CONTAINERS['models']}/{job_id}")
+        
+        # Upload results
+        upload_blob(CONTAINERS['models'], f"{job_id}/model.obj", model_path)
+        
+        # Update final status
+        update_job_status(job_id, "completed")
+        
     except Exception as e:
         logger.error(f"Error processing job {job_id}: {str(e)}")
         logger.error(traceback.format_exc())
-        return {
-            "status": "error",
-            "job_id": job_id,
-            "error": str(e)
-        }
+        update_job_status(job_id, "failed", str(e))
 
-def callback(ch, method, properties, body):
-    """RabbitMQ message callback handler"""
-    job = json.loads(body.decode())
-    job_id = job["job_id"]
-    
-    logger.info(f"Received job {job_id}")
-    
-    # Process the job
-    result = process_job(job_id)
-    
-    # Log the result
-    if result["status"] == "success":
-        logger.info(f"Successfully processed job {job_id}")
-    else:
-        logger.error(f"Failed to process job {job_id}: {result['error']}")
-    
-    # Acknowledge the message
-    ch.basic_ack(delivery_tag=method.delivery_tag)
-    
-    # If needed, send a response to a result queue
-    if "reply_to" in job:
-        response_queue = job["reply_to"]
-        ch.basic_publish(
-            exchange='',
-            routing_key=response_queue,
-            body=json.dumps(result)
-        )
+def process_single_message():
+    """Process a single message from the queue and exit"""
+    try:
+        # Get a single message
+        queue_client = get_queue_client()
+        messages = queue_client.receive_messages(max_messages=1)
+        
+        for msg in messages:
+            try:
+                # Process message
+                job_data = json.loads(msg.content)
+                process_job(job_data)
+                
+                # Delete message after processing
+                queue_client.delete_message(msg)
+                return True
+                
+            except Exception as e:
+                logger.error(f"Error processing message: {str(e)}")
+                logger.error(traceback.format_exc())
+                return False
+        
+        return False  # No messages to process
+        
+    except Exception as e:
+        logger.error(f"Queue processing error: {str(e)}")
+        logger.error(traceback.format_exc())
+        return False
 
 def main():
     """Main entry point for the service"""
     logger.info("Starting Hunyuan3D Image Processing Service")
     
-    # Ensure directories exist
-    ensure_dirs()
+    # Create local storage directories
+    os.makedirs("local_storage", exist_ok=True)
+    for container in CONTAINERS.values():
+        os.makedirs(f"local_storage/{container}", exist_ok=True)
     
-    # RabbitMQ setup
-    rabbitmq_host = os.getenv("RABBITMQ_HOST", "localhost")
-    rabbitmq_user = os.getenv("RABBITMQ_USER", "guest")
-    rabbitmq_pass = os.getenv("RABBITMQ_PASS", "guest")
+    # Initialize background removal session
+    global bg_remover_session
+    bg_remover_session = new_session()
     
-    # Connection parameters with credentials
-    credentials = pika.PlainCredentials(rabbitmq_user, rabbitmq_pass)
-    parameters = pika.ConnectionParameters(
-        host=rabbitmq_host,
-        credentials=credentials,
-        heartbeat=600,  # Longer heartbeat for longer processing tasks
-        blocked_connection_timeout=300
-    )
+    # Process single message and exit
+    success = process_single_message()
     
-    # Retry connection with backoff
-    retry_count = 0
-    max_retries = 5
-    while retry_count < max_retries:
-        try:
-            connection = pika.BlockingConnection(parameters)
-            channel = connection.channel()
-            channel.queue_declare(queue=QUEUE_NAME, durable=True)
-            
-            # Set prefetch to 1 to ensure we only process one job at a time
-            channel.basic_qos(prefetch_count=1)
-            
-            # Register the callback
-            channel.basic_consume(queue=QUEUE_NAME, on_message_callback=callback)
-            
-            logger.info("Service started. Waiting for jobs...")
-            channel.start_consuming()
-            break
-            
-        except pika.exceptions.AMQPConnectionError as e:
-            retry_count += 1
-            wait_time = 2 ** retry_count  # Exponential backoff
-            logger.error(f"Connection failed (attempt {retry_count}/{max_retries}). Retrying in {wait_time}s: {str(e)}")
-            import time
-            time.sleep(wait_time)
-    
-    if retry_count >= max_retries:
-        logger.critical("Failed to connect to RabbitMQ after maximum retries")
-        return 1
-    
-    return 0
+    # Exit with appropriate status code
+    return 0 if success else 1
 
 if __name__ == "__main__":
     exit(main())
