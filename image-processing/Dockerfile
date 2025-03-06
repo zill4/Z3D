@@ -5,7 +5,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     DEBIAN_FRONTEND=noninteractive \
     PYTHONPATH=/app:$PYTHONPATH \
-    FORCE_CUDA=1
+    FORCE_CUDA=1 \
+    NVIDIA_VISIBLE_DEVICES=all \
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -45,12 +47,15 @@ RUN pip3 install -e . && \
     python3 setup.py install && \
     cd /app
 
-# Now install remaining requirements for image_processing.py
+# Install Azure specific requirements
+RUN pip3 install --no-cache-dir azure-storage-blob
+
+# Now install remaining requirements
 COPY requirements.txt .
 RUN pip3 install --no-cache-dir -r requirements.txt
 
-# Copy the rest of the application code
-COPY . .
+# Copy the image processing code
+COPY image_processing.py .
 
 # Create necessary directories
 RUN mkdir -p uploads prepped models
